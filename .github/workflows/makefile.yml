@@ -17,7 +17,7 @@ jobs:
       id: cuda-toolkit
       with:
         cuda: '12.4.1'
-        sub-packages: "nvcc" # optional, default is []
+        sub-packages: ["nvcc"] # optional, default is []
     
     - run: echo "Installed cuda version is:${{steps.cuda-toolkit.outputs.cuda}}"
     
