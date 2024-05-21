@@ -3,7 +3,7 @@
 #include <vector>
 #include <random>
 #include <iostream>
-#include <thrust/device_vector.h>
+#include <chrono>
 #include <curand_kernel.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -38,54 +38,54 @@ __device__ inline double uniform(curandState *rand_states, unsigned int tid) {
 
 class Vector {
 public:
-	__device__ Vector(double x = 0, double y = 0, double z = 0) {
+	__device__ __host__ Vector(double x = 0, double y = 0, double z = 0) {
 		data[0] = x;
 		data[1] = y;
 		data[2] = z;
 	}
-	__device__ double norm2() const {
+	__device__ __host__ double norm2() const {
 		return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
 	}
-	__device__ double norm() const {
+	__device__ __host__ double norm() const {
 		return sqrt(norm2());
 	}
-	__device__ void normalize() {
+	__device__ __host__ void normalize() {
 		double n = norm();
 		data[0] /= n;
 		data[1] /= n;
 		data[2] /= n;
 	}
-	__device__ double operator[](int i) const { return data[i]; };
-	__device__ double& operator[](int i) { return data[i]; };
+	__device__ __host__ double operator[](int i) const { return data[i]; };
+	__device__ __host__ double& operator[](int i) { return data[i]; };
 	double data[3];
 };
 
-__device__ Vector operator+(const Vector& a, const Vector& b) {
+__device__ __host__ Vector operator+(const Vector& a, const Vector& b) {
 	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
 }
-__device__ Vector operator-(const Vector& a, const Vector& b) {
+__device__ __host__ Vector operator-(const Vector& a, const Vector& b) {
 	return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
-__device__ Vector operator-(const Vector& a) {
+__device__ __host__ Vector operator-(const Vector& a) {
 	return Vector(-a[0], -a[1], -a[2]);
 }
-__device__ Vector operator*(const double a, const Vector& b) {
+__device__ __host__ Vector operator*(const double a, const Vector& b) {
 	return Vector(a*b[0], a*b[1], a*b[2]);
 }
-__device__ Vector operator*(const Vector& a, const double b) {
+__device__ __host__ Vector operator*(const Vector& a, const double b) {
 	return Vector(a[0]*b, a[1]*b, a[2]*b);
 }
 // Element wise vector multiplication
-__device__ Vector operator*(const Vector& a, const Vector& b) {
+__device__ __host__ Vector operator*(const Vector& a, const Vector& b) {
 	return Vector(a[0]*b[0], a[1]*b[1], a[2]*b[2]);
 }
-__device__ Vector operator/(const Vector& a, const double b) {
+__device__ __host__ Vector operator/(const Vector& a, const double b) {
 	return Vector(a[0] / b, a[1] / b, a[2] / b);
 }
-__device__ double dot(const Vector& a, const Vector& b) {
+__device__ __host__ double dot(const Vector& a, const Vector& b) {
 	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
-__device__ Vector cross(const Vector& a, const Vector& b) {
+__device__ __host__ Vector cross(const Vector& a, const Vector& b) {
 	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
 }
 
@@ -130,6 +130,367 @@ public:
 		N.normalize();
 		return 1;
 	}
+};
+
+/* Start of code derived from Prof Bonnel's code */
+class TriangleIndices {
+public:
+	__device__ __host__ TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {
+	};
+	int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
+	int uvi, uvj, uvk;  // indices within the uv coordinates array
+	int ni, nj, nk;  // indices within the normals array
+	int group;       // face group
+};
+
+template <typename T> __device__ void swap ( T& a, T& b ) {
+  T c(a); a=b; b=c;
+}
+
+class BoundingBox {
+public:
+	Vector mn, mx;
+
+	__device__ BoundingBox(): mn(Vector(INF, INF, INF)), mx(Vector(-INF, -INF, -INF)) {};
+
+	__device__ inline void update(const Vector &vec) {
+		mn[0] = min(mn[0], vec[0]);
+		mn[1] = min(mn[1], vec[1]);
+		mn[2] = min(mn[2], vec[2]);
+		mx[0] = max(mx[0], vec[0]);
+		mx[1] = max(mx[1], vec[1]);
+		mx[2] = max(mx[2], vec[2]);
+	}
+
+	__device__ inline bool intersect(const Ray &r, double &t) {
+		double t0x = (mn[0] - r.O[0]) / r.u[0];
+		double t0y = (mn[1] - r.O[1]) / r.u[1];
+		double t0z = (mn[2] - r.O[2]) / r.u[2];
+		double t1x = (mx[0] - r.O[0]) / r.u[0];
+		double t1y = (mx[1] - r.O[1]) / r.u[1];
+		double t1z = (mx[2] - r.O[2]) / r.u[2];
+		if (t0x > t1x) swap(t0x, t1x);
+		if (t0y > t1y) swap(t0y, t1y);
+		if (t0z > t1z) swap(t0z, t1z);
+		return min(t1x, min(t1y, t1z)) > max(t0x, max(t0y, t0z));
+	}
+};
+
+class BVH {
+public:
+	BVH *left, *right;
+	BoundingBox bb;
+	int triangle_start, triangle_end;
+};
+
+class TriangleMesh: public Geometry {
+public:
+  	__device__ ~TriangleMesh() {}
+	__device__ TriangleMesh() {};
+
+	#define between(A, B, C) ((A) <= (B) && (B) <= (C))
+
+	__device__ BoundingBox compute_bbox(int triangle_start, int triangle_end) {
+		BoundingBox bb;
+		for (int i = triangle_start; i < triangle_end; i++) {
+			bb.update(vertices[indices[i].vtxi]);
+			bb.update(vertices[indices[i].vtxj]);
+			bb.update(vertices[indices[i].vtxk]);
+		}
+		return bb;
+	}
+
+	__device__ void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
+		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
+		// printf("%d %d\n", triangle_start, triangle_end);
+		cur->triangle_start = triangle_start;
+		cur->triangle_end = triangle_end;
+		cur->left = NULL;
+		cur->right = NULL;
+		cur->bb = compute_bbox(triangle_start, triangle_end);
+
+		Vector diag = cur->bb.mx - cur->bb.mn;
+		int max_axis;
+		if (diag[0] >= diag[1] && diag[0] >= diag[2])
+			max_axis = 0;
+		else if (diag[1] >= diag[0] && diag[1] >= diag[2])
+			max_axis = 1;
+		else
+			max_axis = 2;
+
+		int pivot = triangle_start;
+		double split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
+		for (int i = triangle_start; i < triangle_end; i++) {
+			double cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
+			if (cen < split) {
+				swap(indices[i], indices[pivot]);
+				pivot++;
+			}
+		}
+
+		if (pivot <= triangle_start || pivot >= triangle_end - 1 || triangle_end - triangle_start < 5) {
+			return;
+		}
+		cur->left = new BVH;
+		cur->right = new BVH;
+		buildBVH(cur->left, triangle_start, pivot);
+		buildBVH(cur->right, pivot, triangle_end);
+	}
+
+	__device__ bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, double &t) {
+		Vector e1 = B - A;
+		Vector e2 = C - A;
+		N = cross(e1, e2);
+		if (dot(r.u, N) == 0) return 0;
+		double beta = dot(e2, cross(A - r.O, r.u)) / dot(r.u, N);
+		double gamma = - dot(e1, cross(A - r.O, r.u)) / dot(r.u, N);
+		if (!between(0, beta, 1) || !between(0, gamma, 1))	return 0;
+		t = dot(A - r.O, N) / dot(r.u, N);
+		return beta + gamma <= 1 && t > 0;
+	}
+	
+	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
+		// printf("inter!\n");
+		double t_tmp;
+		if (!bvh.bb.intersect(r, t_tmp)) return 0;
+		BVH* s[30];
+		int s_size = 0;
+		s[s_size++] = &bvh;
+
+		double t_min = INF;
+		while(s_size) {
+			const BVH* cur = s[s_size-1];
+			s_size--;
+			if (cur->left) {
+				double t_left, t_right;
+				bool ok_left = cur->left->bb.intersect(r, t_left);
+				bool ok_right = cur->right->bb.intersect(r, t_right);
+				// printf("%d %d\n", ok_left, ok_right);
+				if (ok_left) s[s_size++] = cur->left;
+				if (ok_right) s[s_size++] = cur->right;
+			} else {
+				// Leaf
+				for (int i = cur->triangle_start; i < cur->triangle_end; i++) {
+					double t_cur;
+					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
+					Vector N_triangle;
+					bool inter = moller_trumbore(A, B, C, N_triangle, r, t_cur);
+					if (!inter) continue;
+					if (t_cur > 0 && t_cur < t_min) {
+						t_min = t_cur;
+						N = N_triangle;
+					}
+				} 
+			}
+		}
+		N.normalize();
+		t = t_min;
+		return t_min != INF;
+	}
+	TriangleIndices* indices;
+	int indices_size;
+	Vector* vertices;
+	int vertices_size;
+	// Vector* normals;
+	// int normals_size;
+	// Vector* uvs;
+	// int uvs_size;
+	// Vector* vertexcolors;
+	// int vertexcolors_size;
+	BoundingBox bb;
+	BVH bvh;
+};
+/* End of code derived from Prof Bonnel's code */
+
+class TriangleMeshHost {
+public:
+ 	~TriangleMeshHost() {}
+	TriangleMeshHost() {};
+
+	void readOBJ(const char* obj) {
+
+		char matfile[255];
+		char grp[255];
+
+		FILE* f;
+		f = fopen(obj, "r");
+		if (f == NULL) {
+			printf("Error opening file!\n");
+			return;
+		}
+		int curGroup = -1;
+		while (!feof(f)) {
+			char line[255];
+			if (!fgets(line, 255, f)) break;
+
+			std::string linetrim(line);
+			linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
+			strcpy(line, linetrim.c_str());
+
+			if (line[0] == 'u' && line[1] == 's') {
+				sscanf(line, "usemtl %[^\n]\n", grp);
+				curGroup++;
+			}
+
+			if (line[0] == 'v' && line[1] == ' ') {
+				Vector vec;
+
+				Vector col;
+				if (sscanf(line, "v %lf %lf %lf %lf %lf %lf\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
+					col[0] = std::min(1., std::max(0., col[0]));
+					col[1] = std::min(1., std::max(0., col[1]));
+					col[2] = std::min(1., std::max(0., col[2]));
+
+					vertices.push_back(vec);
+					vertexcolors.push_back(col);
+
+				} else {
+					sscanf(line, "v %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+					vec = vec*0.8+Vector(0, -10, 0);
+					vertices.push_back(vec);
+				}
+			}
+			if (line[0] == 'v' && line[1] == 'n') {
+				Vector vec;
+				sscanf(line, "vn %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
+				normals.push_back(vec);
+			}
+			if (line[0] == 'v' && line[1] == 't') {
+				Vector vec;
+				sscanf(line, "vt %lf %lf\n", &vec[0], &vec[1]);
+				uvs.push_back(vec);
+			}
+			if (line[0] == 'f') {
+				TriangleIndices t;
+				int i0, i1, i2, i3;
+				int j0, j1, j2, j3;
+				int k0, k1, k2, k3;
+				int nn;
+				t.group = curGroup;
+
+				char* consumedline = line + 1;
+				int offset;
+
+				nn = sscanf(consumedline, "%u/%u/%u %u/%u/%u %u/%u/%u%n", &i0, &j0, &k0, &i1, &j1, &k1, &i2, &j2, &k2, &offset);
+				if (nn == 9) {
+					if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+					if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+					if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+					if (j0 < 0) t.uvi = uvs.size() + j0; else	t.uvi = j0 - 1;
+					if (j1 < 0) t.uvj = uvs.size() + j1; else	t.uvj = j1 - 1;
+					if (j2 < 0) t.uvk = uvs.size() + j2; else	t.uvk = j2 - 1;
+					if (k0 < 0) t.ni = normals.size() + k0; else	t.ni = k0 - 1;
+					if (k1 < 0) t.nj = normals.size() + k1; else	t.nj = k1 - 1;
+					if (k2 < 0) t.nk = normals.size() + k2; else	t.nk = k2 - 1;
+					indices.push_back(t);
+				} else {
+					nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
+					if (nn == 6) {
+						if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+						if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+						if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+						if (j0 < 0) t.uvi = uvs.size() + j0; else	t.uvi = j0 - 1;
+						if (j1 < 0) t.uvj = uvs.size() + j1; else	t.uvj = j1 - 1;
+						if (j2 < 0) t.uvk = uvs.size() + j2; else	t.uvk = j2 - 1;
+						indices.push_back(t);
+					} else {
+						nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
+						if (nn == 3) {
+							if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+							if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+							if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+							indices.push_back(t);
+						} else {
+							nn = sscanf(consumedline, "%u//%u %u//%u %u//%u%n", &i0, &k0, &i1, &k1, &i2, &k2, &offset);
+							if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
+							if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
+							if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
+							if (k0 < 0) t.ni = normals.size() + k0; else	t.ni = k0 - 1;
+							if (k1 < 0) t.nj = normals.size() + k1; else	t.nj = k1 - 1;
+							if (k2 < 0) t.nk = normals.size() + k2; else	t.nk = k2 - 1;
+							indices.push_back(t);
+						}
+					}
+				}
+
+				consumedline = consumedline + offset;
+
+				while (true) {
+					if (consumedline[0] == '\n') break;
+					if (consumedline[0] == '\0') break;
+					nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
+					TriangleIndices t2;
+					t2.group = curGroup;
+					if (nn == 3) {
+						if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+						if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+						if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+						if (j0 < 0) t2.uvi = uvs.size() + j0; else	t2.uvi = j0 - 1;
+						if (j2 < 0) t2.uvj = uvs.size() + j2; else	t2.uvj = j2 - 1;
+						if (j3 < 0) t2.uvk = uvs.size() + j3; else	t2.uvk = j3 - 1;
+						if (k0 < 0) t2.ni = normals.size() + k0; else	t2.ni = k0 - 1;
+						if (k2 < 0) t2.nj = normals.size() + k2; else	t2.nj = k2 - 1;
+						if (k3 < 0) t2.nk = normals.size() + k3; else	t2.nk = k3 - 1;
+						indices.push_back(t2);
+						consumedline = consumedline + offset;
+						i2 = i3;
+						j2 = j3;
+						k2 = k3;
+					} else {
+						nn = sscanf(consumedline, "%u/%u%n", &i3, &j3, &offset);
+						if (nn == 2) {
+							if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+							if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+							if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+							if (j0 < 0) t2.uvi = uvs.size() + j0; else	t2.uvi = j0 - 1;
+							if (j2 < 0) t2.uvj = uvs.size() + j2; else	t2.uvj = j2 - 1;
+							if (j3 < 0) t2.uvk = uvs.size() + j3; else	t2.uvk = j3 - 1;
+							consumedline = consumedline + offset;
+							i2 = i3;
+							j2 = j3;
+							indices.push_back(t2);
+						} else {
+							nn = sscanf(consumedline, "%u//%u%n", &i3, &k3, &offset);
+							if (nn == 2) {
+								if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+								if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+								if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+								if (k0 < 0) t2.ni = normals.size() + k0; else	t2.ni = k0 - 1;
+								if (k2 < 0) t2.nj = normals.size() + k2; else	t2.nj = k2 - 1;
+								if (k3 < 0) t2.nk = normals.size() + k3; else	t2.nk = k3 - 1;								
+								consumedline = consumedline + offset;
+								i2 = i3;
+								k2 = k3;
+								indices.push_back(t2);
+							} else {
+								nn = sscanf(consumedline, "%u%n", &i3, &offset);
+								if (nn == 1) {
+									if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
+									if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
+									if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
+									consumedline = consumedline + offset;
+									i2 = i3;
+									indices.push_back(t2);
+								} else {
+									consumedline = consumedline + 1;
+								}
+							}
+						}
+					}
+				}
+
+			}
+
+		}
+		fclose(f);
+
+	}
+
+	std::vector<TriangleIndices> indices;
+	std::vector<Vector> vertices;
+	std::vector<Vector> normals;
+	std::vector<Vector> uvs;
+	std::vector<Vector> vertexcolors;
 };
 
 class Scene {
@@ -254,22 +615,39 @@ public:
 	curandState* rand_states;
 };
 
-__global__ void KernelInit(Scene *s) {
+__global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size) {
  	auto id = threadIdx.x + blockIdx.x * blockDim.x;
 	if (!id) {
 		s->L = Vector(-10., 20., 40.);
 		s->objects_size = 0;
 		s->intensity = 3e10;
-		s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
+		// s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
 		s->addObject(new Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.))); // green fore wall
 		s->addObject(new Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.))); // blue floor
 		s->addObject(new Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.))); // red ceiling
 		s->addObject(new Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.))); // cyan left wall
 		s->addObject(new Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.))); // yellow right wall
 		s->addObject(new Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.))); // magenta back wall
-		s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
-		s->addObject(new Sphere(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5)); // inner nested ssphere
-		s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
+		// s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
+		// s->addObject(new Sphere(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5)); // inner nested ssphere
+		// s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
+
+		TriangleMesh* cat = new TriangleMesh();
+		cat->albedo = Vector(0.25, 0.25, 0.25);
+	 	cat->indices_size = indices_size;
+		cat->indices = indices;
+		cat->vertices_size = vertices_size;
+		cat->vertices = vertices;
+		printf("%d %d\n", indices_size, vertices_size);
+		// cat->normals_size;
+		// cat->normals;
+		// cat->uvs_size;
+		// cat->uvs;
+		// cat->vertexcolors_size;
+		// cat->vertexcolors;
+		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
+		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+		s->addObject(cat);
 		s->rand_states = new curandState[blockDim.x];
 	}
 	__syncthreads();
@@ -333,9 +711,18 @@ int main(int argc, char **argv) {
 	// Malloc & transfer to GPU
     gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
     gpuErrchk( cudaMalloc((void**)&d_image, image_size) );
+	TriangleMeshHost* mesh_ptr = new TriangleMeshHost(); // cat
+	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
+	mesh_ptr->readOBJ(path);
+	TriangleIndices* d_indices;
+	Vector* d_vertices;
+    gpuErrchk( cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)) );
+    gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
+    gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
 
 	// Init scene in kernel
-	KernelInit<<<1, BLOCK_DIM>>>(d_s);
+	KernelInit<<<1, BLOCK_DIM>>>(d_s, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size());
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
@@ -352,6 +739,8 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMemcpy(h_image, d_image, image_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_s) );
     gpuErrchk( cudaFree(d_image) );
+    gpuErrchk( cudaFree(d_indices) );
+    gpuErrchk( cudaFree(d_vertices) );
 
 	stbi_write_png("image.png", W, H, 3, &h_image[0], 0);
     delete h_image;
