@@ -638,7 +638,6 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		cat->indices = indices;
 		cat->vertices_size = vertices_size;
 		cat->vertices = vertices;
-		printf("%d %d\n", indices_size, vertices_size);
 		// cat->normals_size;
 		// cat->normals;
 		// cat->uvs_size;
