@@ -655,6 +655,12 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 
 __global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_rays, int num_bounce) {
 	extern __shared__ double shared_memory[];
+	double *shared_colors = shared_memory;
+	Scene *shared_scene = (Scene *)&shared_colors[blockDim.x * 3];
+	if (!threadIdx.x) {
+		*shared_scene = *s;
+	}
+	__syncthreads();
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	Vector C(0, 0, 55);
@@ -663,20 +669,20 @@ __global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_ray
     unsigned int seed = threadIdx.x;
     Vector u_center((double)j - (double)W / 2 + 0.5, (double)H / 2 - i - 0.5, z);
 	// Box-muller for anti-aliasing
-	double sigma = 2 * pow(10, -1);
-	double r1 = uniform(s->rand_states, seed);
-	double r2 = uniform(s->rand_states, seed);
+	double sigma = 0.2;
+	double r1 = uniform(shared_scene->rand_states, seed);
+	double r2 = uniform(shared_scene->rand_states, seed);
 	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
 	u.normalize();
 	Ray r(C, u);
-	Vector color = s->getColor(r, num_bounce);
-    shared_memory[threadIdx.x * 3 + 0] = color[0];
-    shared_memory[threadIdx.x * 3 + 1] = color[1];
-    shared_memory[threadIdx.x * 3 + 2] = color[2];
+	Vector color = shared_scene->getColor(r, num_bounce);
+    shared_colors[threadIdx.x * 3 + 0] = color[0];
+    shared_colors[threadIdx.x * 3 + 1] = color[1];
+    shared_colors[threadIdx.x * 3 + 2] = color[2];
 	__syncthreads();
-	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_memory[blockDim.x * 0 + threadIdx.x];
-	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_memory[blockDim.x * 1 + threadIdx.x];
-	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_memory[blockDim.x * 2 + threadIdx.x];
+	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
+	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
+	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_colors[blockDim.x * 2 + threadIdx.x];
 }
 
 __global__ void KernelDelete(Scene *s) {
@@ -728,7 +734,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaDeviceSynchronize() );
 
 	// Launch kernel
-    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3>>>(d_s, d_colors, W, H, num_rays, num_bounce);
+    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3 + sizeof(Scene)>>>(d_s, d_colors, W, H, num_rays, num_bounce);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
