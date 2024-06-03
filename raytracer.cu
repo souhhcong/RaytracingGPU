@@ -654,7 +654,7 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 }
 
 __global__ void KernelLaunch(Scene *s, char *image, int W, int H, int num_rays, int num_bounce) {
-	extern __shared__ char shared_memory[];
+	extern __shared__ int shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
     int i = index / W, j = index % W;
 	Vector C(0, 0, 55);
@@ -731,7 +731,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaDeviceSynchronize() );
 
 	// Launch kernel
-    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(char) * BLOCK_DIM * 3>>>(d_s, d_image, W, H, num_rays, num_bounce);
+    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(int) * BLOCK_DIM * 3>>>(d_s, d_image, W, H, num_rays, num_bounce);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
