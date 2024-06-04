@@ -607,7 +607,8 @@ public:
 			}
 		}
 		return color;
-}
+	}
+
 	Geometry* objects[100];
     int objects_size = 0;
 	double intensity = 3e10;
@@ -647,21 +648,23 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
 		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
 		s->addObject(cat);
-		s->rand_states = new curandState[blockDim.x];
 	}
-	__syncthreads();
-  	curand_init(123456, id, 0, s->rand_states + id);
 }
 
 __global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_rays, int num_bounce) {
 	extern __shared__ double shared_memory[];
+    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	double *shared_colors = shared_memory;
-	Scene *shared_scene = (Scene *)&shared_colors[blockDim.x * 3];
+	// Geometry *shared_objects = (Geometry *)&shared_colors[blockDim.x * 3];
+	// curandState *shared_rand_states = (curandState *)&shared_objects[s->objects_size];
+	curandState *shared_rand_states = (curandState *)&shared_colors[blockDim.x * 3];
+	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
 	if (!threadIdx.x) {
 		*shared_scene = *s;
+		shared_scene->rand_states = shared_rand_states;
 	}
 	__syncthreads();
-    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
     int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	Vector C(0, 0, 55);
 	double alpha = PI/3;
@@ -676,7 +679,7 @@ __global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_ray
 	u.normalize();
 	Ray r(C, u);
 	Vector color = shared_scene->getColor(r, num_bounce);
-    shared_colors[threadIdx.x * 3 + 0] = color[0];
+	shared_colors[threadIdx.x * 3 + 0] = color[0];
     shared_colors[threadIdx.x * 3 + 1] = color[1];
     shared_colors[threadIdx.x * 3 + 2] = color[2];
 	__syncthreads();
@@ -734,7 +737,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaDeviceSynchronize() );
 
 	// Launch kernel
-    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3 + sizeof(Scene)>>>(d_s, d_colors, W, H, num_rays, num_bounce);
+    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3 + sizeof(curandState) * BLOCK_DIM + sizeof(Scene)>>>(d_s, d_colors, W, H, num_rays, num_bounce);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
