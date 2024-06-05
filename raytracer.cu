@@ -99,7 +99,7 @@ public:
 
 class Geometry {
 public:
-	__device__ Geometry(const Vector &C, double R, const Vector &albedo, int id = -1, bool mirror = 0, double in_refraction_index = 1, double out_refraction_index = 1): C(C), R(R), albedo(albedo), id(id),
+	__device__ Geometry(const Vector &C, double R, const Vector &albedo, bool mirror = 0, double in_refraction_index = 1, double out_refraction_index = 1): C(C), R(R), albedo(albedo), id(-1),
 	mirror(mirror), in_refraction_index(in_refraction_index), out_refraction_index(out_refraction_index) {}
 	__device__ Geometry(): id(-1), mirror(0), in_refraction_index(1), out_refraction_index(1) {};
 	
@@ -521,6 +521,18 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
 		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
 		++shared_scene->objects_size;
+		// shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
+		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+		// ++shared_scene->objects_size;
+		// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
+		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+		// ++shared_scene->objects_size;
+		// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
+		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+		// ++shared_scene->objects_size;
 		shared_scene->rand_states = shared_rand_states;
 	}
 	__syncthreads();
