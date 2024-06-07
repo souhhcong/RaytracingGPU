@@ -600,42 +600,19 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 		shared_scene->L = Vector(-10., 20., 40.);
 		shared_scene->objects_size = 0;
 		shared_scene->intensity = 3e10;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
+		#define ADD_OBJ_TO_SHARED_MEM(x) shared_objects[shared_scene->objects_size] = (x),\
+										shared_objects[shared_scene->objects_size].id = shared_scene->objects_size,\
+										shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size],\
+										++shared_scene->objects_size
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, 0, -1000), 940, Vector(0., 1., 0.)));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, -1000, 0), 990, Vector(0., 0., 1.)));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, 1000, 0), 940, Vector(1., 0., 0.)));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.)));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(1000, 0, 0), 940, Vector(1., 1., 0.)));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, 0, 1000), 940, Vector(1., 0., 1.)));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5));
+		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1));
 		shared_scene->rand_states = shared_rand_states;
 	}
 	__syncthreads();
