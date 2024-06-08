@@ -159,6 +159,11 @@ public:
 	Vector mn, mx;
 
 	__device__ __host__ BoundingBox(): mn(Vector(INF, INF, INF)), mx(Vector(-INF, -INF, -INF)) {};
+	__device__ __host__ BoundingBox(
+		const Vector &mn_,
+		const Vector &mx_
+	) : mn(mn_),
+		mx(mx_) {}
 
 	__device__ __host__ inline void update(const Vector &vec) {
 		mn[0] = min(mn[0], vec[0]);
@@ -190,59 +195,19 @@ public:
 	int triangle_start, triangle_end;
 };
 
+class BVHDevice {
+public:
+	int left, right;
+	BoundingBox bb;
+	int triangle_start, triangle_end;
+};
+
 class TriangleMesh: public Geometry {
 public:
   	// __device__ ~TriangleMesh() {};
 	__device__ TriangleMesh() {};
 
 	#define between(A, B, C) ((A) <= (B) && (B) <= (C))
-
-	__device__ BoundingBox compute_bbox(int triangle_start, int triangle_end) {
-		BoundingBox bb;
-		for (int i = triangle_start; i < triangle_end; i++) {
-			bb.update(vertices[indices[i].vtxi]);
-			bb.update(vertices[indices[i].vtxj]);
-			bb.update(vertices[indices[i].vtxk]);
-		}
-		return bb;
-	}
-
-	__device__ void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
-		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
-		// printf("%d %d\n", triangle_start, triangle_end);
-		cur->triangle_start = triangle_start;
-		cur->triangle_end = triangle_end;
-		cur->left = NULL;
-		cur->right = NULL;
-		cur->bb = compute_bbox(triangle_start, triangle_end);
-
-		Vector diag = cur->bb.mx - cur->bb.mn;
-		int max_axis;
-		if (diag[0] >= diag[1] && diag[0] >= diag[2])
-			max_axis = 0;
-		else if (diag[1] >= diag[0] && diag[1] >= diag[2])
-			max_axis = 1;
-		else
-			max_axis = 2;
-
-		int pivot = triangle_start;
-		double split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
-		for (int i = triangle_start; i < triangle_end; i++) {
-			double cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
-			if (cen < split) {
-				swap(indices[i], indices[pivot]);
-				pivot++;
-			}
-		}
-
-		if (pivot <= triangle_start || pivot >= triangle_end - 1 || triangle_end - triangle_start < 5) {
-			return;
-		}
-		cur->left = new BVH;
-		cur->right = new BVH;
-		buildBVH(cur->left, triangle_start, pivot);
-		buildBVH(cur->right, pivot, triangle_end);
-	}
 
 	__device__ bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, double &t) {
 		Vector e1 = B - A;
@@ -257,29 +222,55 @@ public:
 	}
 	
 	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
-		// printf("inter!\n");
-		// printf("Intersect mesh\n");
 		double t_tmp;
-		if (!bvh.bb.intersect(r, t_tmp)) return 0;
-		BVH* s[30];
+
+		#define BUILD_BVH(var, idx) var.left = tex1Dfetch<float>(tex_obj, (idx) * 10 + 0),\
+									var.right = tex1Dfetch<float>(tex_obj, (idx) * 10 + 1),\
+									var.bb = BoundingBox(\
+										Vector(\
+											tex1Dfetch<float>(tex_obj, (idx) * 10 + 2),\
+											tex1Dfetch<float>(tex_obj, (idx) * 10 + 3),\
+											tex1Dfetch<float>(tex_obj, (idx) * 10 + 4)\
+										),\
+										Vector(\
+											tex1Dfetch<float>(tex_obj, (idx) * 10 + 5),\
+											tex1Dfetch<float>(tex_obj, (idx) * 10 + 6),\
+											tex1Dfetch<float>(tex_obj, (idx) * 10 + 7)\
+										)\
+									),\
+									var.triangle_start = tex1Dfetch<float>(tex_obj, (idx) * 10 + 8),\
+									var.triangle_end = tex1Dfetch<float>(tex_obj, (idx) * 10 + 9)
+
+		BVHDevice bvh;
+		BUILD_BVH(bvh, 0);
+		if (!bvh.bb.intersect(r, t_tmp)) {
+			return 0;
+		}
+
+		int s[30];
 		int s_size = 0;
-		s[s_size++] = &bvh;
+		s[s_size++] = 0;
 
 
 		double t_min = INF;
-		while(s_size) {
-			const BVH* cur = s[s_size-1];
+		while (s_size) {
+			int cur = s[s_size-1];
 			s_size--;
-			if (cur->left) {
+			BVHDevice cur_bvh;
+			BUILD_BVH(cur_bvh, cur);
+			if (cur_bvh.left != -1) {
+				BVHDevice left_bvh;
+				BUILD_BVH(left_bvh, cur_bvh.left);
+				BVHDevice right_bvh;
+				BUILD_BVH(right_bvh, cur_bvh.right);
 				double t_left, t_right;
-				bool ok_left = cur->left->bb.intersect(r, t_left);
-				bool ok_right = cur->right->bb.intersect(r, t_right);
-				// printf("%d %d\n", ok_left, ok_right);
-				if (ok_left) s[s_size++] = cur->left;
-				if (ok_right) s[s_size++] = cur->right;
+				bool ok_left = left_bvh.bb.intersect(r, t_left);
+				bool ok_right = right_bvh.bb.intersect(r, t_right);
+				if (ok_left) s[s_size++] = cur_bvh.left;
+				if (ok_right) s[s_size++] = cur_bvh.right;
 			} else {
 				// Leaf
-				for (int i = cur->triangle_start; i < cur->triangle_end; i++) {
+				for (int i = cur_bvh.triangle_start; i < cur_bvh.triangle_end; i++) {
 					double t_cur;
 					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
 					Vector N_triangle;
@@ -300,8 +291,7 @@ public:
 	int indices_size;
 	Vector* vertices;
 	int vertices_size;
-	BoundingBox bb;
-	BVH bvh;
+	cudaTextureObject_t tex_obj;
 };
 
 class TriangleMeshHost {
@@ -546,7 +536,7 @@ public:
 		buildBVH(cur->right, pivot, triangle_end);
 	}
 
-	void bvhTreeToArray(BVH* cur, double *arr_bvh, size_t &arr_size, size_t arr_idx = 0) {
+	void bvhTreeToArray(BVH* cur, float *arr_bvh, size_t &arr_size, size_t arr_idx = 0) {
 		// std::cout << arr_idx << ' ' << cur->triangle_start << ' ' << cur->triangle_end << '\n';
 		// std::cout << "rfgsg\n";
 		arr_bvh[arr_idx * 10 + 2] = cur->bb.mn[0];
@@ -570,59 +560,6 @@ public:
 		} else {
 			arr_bvh[arr_idx * 10 + 1] = -1;
 		}
-	}
-
-	bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, double &t) {
-		Vector e1 = B - A;
-		Vector e2 = C - A;
-		N = cross(e1, e2);
-		if (dot(r.u, N) == 0) return 0;
-		double beta = dot(e2, cross(A - r.O, r.u)) / dot(r.u, N);
-		double gamma = - dot(e1, cross(A - r.O, r.u)) / dot(r.u, N);
-		if (!between(0, beta, 1) || !between(0, gamma, 1))	return 0;
-		t = dot(A - r.O, N) / dot(r.u, N);
-		return beta + gamma <= 1 && t > 0;
-	}
-	
-	bool intersect(const Ray &r, double &t, Vector &N) {
-		// printf("inter!\n");
-		// printf("Intersect mesh\n");
-		double t_tmp;
-		if (!bvh.bb.intersect(r, t_tmp)) return 0;
-		BVH* s[30];
-		int s_size = 0;
-		s[s_size++] = &bvh;
-
-
-		double t_min = INF;
-		while(s_size) {
-			const BVH* cur = s[s_size-1];
-			s_size--;
-			if (cur->left) {
-				double t_left, t_right;
-				bool ok_left = cur->left->bb.intersect(r, t_left);
-				bool ok_right = cur->right->bb.intersect(r, t_right);
-				// printf("%d %d\n", ok_left, ok_right);
-				if (ok_left) s[s_size++] = cur->left;
-				if (ok_right) s[s_size++] = cur->right;
-			} else {
-				// Leaf
-				for (int i = cur->triangle_start; i < cur->triangle_end; i++) {
-					double t_cur;
-					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
-					Vector N_triangle;
-					bool inter = moller_trumbore(A, B, C, N_triangle, r, t_cur);
-					if (!inter) continue;
-					if (t_cur > 0 && t_cur < t_min) {
-						t_min = t_cur;
-						N = N_triangle;
-					}
-				} 
-			}
-		}
-		N.normalize();
-		t = t_min;
-		return t_min != INF;
 	}
 };
 
@@ -760,7 +697,7 @@ public:
 	curandState* rand_states;
 };
 
-__global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size){
+__global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t tex_obj){
 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
 
 	if(!id){
@@ -776,8 +713,8 @@ __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indi
 		// cat->uvs;
 		// cat->vertexcolors_size;
 		// cat->vertexcolors;
-		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
-		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+		cat->tex_obj = tex_obj;
+		printf("Debug %f\n", tex1Dfetch<float>(tex_obj, 0 * 10 + 0));
 	}
 }
 
@@ -811,8 +748,7 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 		mesh.indices = d_mesh->indices;
 		mesh.vertices_size = d_mesh->vertices_size;
 		mesh.indices_size = d_mesh->indices_size;
-		mesh.bvh = d_mesh->bvh;
-		mesh.bb = d_mesh->bb;
+		mesh.tex_obj = d_mesh->tex_obj;
 		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
 		shared_mesh->id = idx;
 		shared_scene->objects[idx] = (Geometry *)shared_mesh;
@@ -925,28 +861,28 @@ int main(int argc, char **argv) {
 
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
+	
 	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
 	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
-	double *arr_bvh = (double *)malloc(sizeof(double) * mesh_ptr->n_bvhs * 10);
+	float *arr_bvh = (float *)malloc(sizeof(float) * mesh_ptr->n_bvhs * 10);
 	size_t arr_size = 1;
 	mesh_ptr->bvhTreeToArray(&(mesh_ptr->bvh), arr_bvh, arr_size);
 	// std::cout << mesh_ptr->n_bvhs << ' ' << arr_size << '\n';
-	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc<double>();
+	printf("Debug %f\n", arr_bvh[0]);
+	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
 	cudaArray *cu_arr;
-	cudaMallocArray(&cu_arr, &chan_desc, sizeof(double) * mesh_ptr->n_bvhs * 10);
-	// cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(double) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
-	cudaMemcpy3DParms copy_params = {0};
-    copy_params.srcPtr = make_cudaPitchedPtr(arr_bvh, sizeof(double) * mesh_ptr->n_bvhs * 10, mesh_ptr->n_bvhs * 10, 1);
-    copy_params.dstArray = cu_arr;
-    copy_params.extent = make_cudaExtent(sizeof(double) * mesh_ptr->n_bvhs * 10, 1, 1);
-    copy_params.kind = cudaMemcpyHostToDevice;
-    cudaMemcpy3D(&copy_params);
+	cudaMallocArray(&cu_arr, &chan_desc, sizeof(float) * mesh_ptr->n_bvhs * 10);
+	cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
+	// cudaMemcpy3DParms copy_params = {0};
+    // copy_params.srcPtr = make_cudaPitchedPtr(arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, mesh_ptr->n_bvhs * 10, 1);
+    // copy_params.dstArray = cu_arr;
+    // copy_params.extent = make_cudaExtent(sizeof(float) * mesh_ptr->n_bvhs * 10, 1, 1);
+    // copy_params.kind = cudaMemcpyHostToDevice;
+    // cudaMemcpy3D(&copy_params);
 	cudaResourceDesc res_desc = {};
-	memset(&res_desc, 0, sizeof(res_desc));
     res_desc.resType = cudaResourceTypeArray;
     res_desc.res.array.array = cu_arr;
 	cudaTextureDesc tex_desc = {};
-	memset(&tex_desc, 0, sizeof(tex_desc));
     tex_desc.addressMode[0] = cudaAddressModeClamp;
     tex_desc.filterMode = cudaFilterModePoint;
     tex_desc.readMode = cudaReadModeElementType;
@@ -962,7 +898,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
 	
 	gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
-	KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size());
+	KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), tex_obj);
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
