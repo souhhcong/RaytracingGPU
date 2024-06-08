@@ -931,6 +931,29 @@ int main(int argc, char **argv) {
 	size_t arr_size = 1;
 	mesh_ptr->bvhTreeToArray(&(mesh_ptr->bvh), arr_bvh, arr_size);
 	// std::cout << mesh_ptr->n_bvhs << ' ' << arr_size << '\n';
+	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc<double>();
+	cudaArray *cu_arr;
+	cudaMallocArray(&cu_arr, &chan_desc, sizeof(double) * mesh_ptr->n_bvhs * 10);
+	// cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(double) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
+	cudaMemcpy3DParms copy_params = {0};
+    copy_params.srcPtr = make_cudaPitchedPtr(arr_bvh, sizeof(double) * mesh_ptr->n_bvhs * 10, mesh_ptr->n_bvhs * 10, 1);
+    copy_params.dstArray = cu_arr;
+    copy_params.extent = make_cudaExtent(sizeof(double) * mesh_ptr->n_bvhs * 10, 1, 1);
+    copy_params.kind = cudaMemcpyHostToDevice;
+    cudaMemcpy3D(&copy_params);
+	cudaResourceDesc res_desc = {};
+	memset(&res_desc, 0, sizeof(res_desc));
+    res_desc.resType = cudaResourceTypeArray;
+    res_desc.res.array.array = cu_arr;
+	cudaTextureDesc tex_desc = {};
+	memset(&tex_desc, 0, sizeof(tex_desc));
+    tex_desc.addressMode[0] = cudaAddressModeClamp;
+    tex_desc.filterMode = cudaFilterModePoint;
+    tex_desc.readMode = cudaReadModeElementType;
+    tex_desc.normalizedCoords = 0;
+	cudaTextureObject_t tex_obj = 0;
+    cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr);
+
 	TriangleIndices* d_indices;
 	Vector* d_vertices;
     gpuErrchk( cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)) );
@@ -957,6 +980,8 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaFree(d_colors) );
     gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
+	cudaDestroyTextureObject(tex_obj);
+	cudaFreeArray(cu_arr);
 
 	for (int i = 0; i < H; ++i) {
 		for (int j = 0; j < W; ++j) {
@@ -977,6 +1002,7 @@ int main(int argc, char **argv) {
 	delete h_colors;
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
     delete image;
+	delete[] arr_bvh;
 
 	// int device;
     // cudaGetDevice(&device);
