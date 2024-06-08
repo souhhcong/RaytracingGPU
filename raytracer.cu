@@ -224,22 +224,22 @@ public:
 	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
 		double t_tmp;
 
-		#define BUILD_BVH(var, idx) var.left = tex1Dfetch<float>(tex_obj, (idx) * 10 + 0),\
-									var.right = tex1Dfetch<float>(tex_obj, (idx) * 10 + 1),\
+		#define BUILD_BVH(var, idx) var.left = tex1D<float>(tex_obj, (idx) * 10 + 0),\
+									var.right = tex1D<float>(tex_obj, (idx) * 10 + 1),\
 									var.bb = BoundingBox(\
 										Vector(\
-											tex1Dfetch<float>(tex_obj, (idx) * 10 + 2),\
-											tex1Dfetch<float>(tex_obj, (idx) * 10 + 3),\
-											tex1Dfetch<float>(tex_obj, (idx) * 10 + 4)\
+											tex1D<float>(tex_obj, (idx) * 10 + 2),\
+											tex1D<float>(tex_obj, (idx) * 10 + 3),\
+											tex1D<float>(tex_obj, (idx) * 10 + 4)\
 										),\
 										Vector(\
-											tex1Dfetch<float>(tex_obj, (idx) * 10 + 5),\
-											tex1Dfetch<float>(tex_obj, (idx) * 10 + 6),\
-											tex1Dfetch<float>(tex_obj, (idx) * 10 + 7)\
+											tex1D<float>(tex_obj, (idx) * 10 + 5),\
+											tex1D<float>(tex_obj, (idx) * 10 + 6),\
+											tex1D<float>(tex_obj, (idx) * 10 + 7)\
 										)\
 									),\
-									var.triangle_start = tex1Dfetch<float>(tex_obj, (idx) * 10 + 8),\
-									var.triangle_end = tex1Dfetch<float>(tex_obj, (idx) * 10 + 9)
+									var.triangle_start = tex1D<float>(tex_obj, (idx) * 10 + 8),\
+									var.triangle_end = tex1D<float>(tex_obj, (idx) * 10 + 9)
 
 		BVHDevice bvh;
 		BUILD_BVH(bvh, 0);
@@ -714,7 +714,6 @@ __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indi
 		// cat->vertexcolors_size;
 		// cat->vertexcolors;
 		cat->tex_obj = tex_obj;
-		printf("Debug %f\n", tex1Dfetch<float>(tex_obj, 0 * 10 + 0));
 	}
 }
 
