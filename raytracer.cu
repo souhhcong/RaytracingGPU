@@ -59,6 +59,10 @@ public:
 	__device__ __host__ double operator[](int i) const { return data[i]; };
 	__device__ __host__ double& operator[](int i) { return data[i]; };
 	double data[3];
+
+	__device__ void print(){
+		printf("%d %d %d\n", data[0], data[1], data[2]);
+	}
 };
 
 __device__ __host__ Vector operator+(const Vector& a, const Vector& b) {
@@ -98,21 +102,57 @@ public:
 	double refraction_index;
 };
 
+// class Geometry {
+// public:
+// 	__device__ Geometry(const Vector &C, double R, const Vector &albedo, bool mirror = 0, double in_refraction_index = 1, double out_refraction_index = 1): C(C), R(R), albedo(albedo), id(-1),
+// 	mirror(mirror), in_refraction_index(in_refraction_index), out_refraction_index(out_refraction_index) {}
+// 	__device__ Geometry(): id(-1), mirror(0), in_refraction_index(1), out_refraction_index(1) {};
+	
+// 	Vector C;
+//     double R;
+// 	Vector albedo;
+// 	int id;
+// 	bool mirror;
+// 	double in_refraction_index;
+// 	double out_refraction_index;
+// 	__device__ virtual bool intersect(const Ray& r, double &t, Vector &N) { return 0; };
+// };
+	// __device__ bool intersect(const Ray &r, double &t, Vector &N) {
+	// 	double delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
+	// 	if (delta < 0)
+	// 		return 0;
+	// 	double t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
+	// 	double t2 = dot(r.u, C - r.O) + sqrt(delta); // second intersection
+	// 	if (t2 < 0)
+	// 		return 0;
+	// 	t = t1 < 0 ? t2 : t1;
+	// 	N = r.O + t * r.u - C;
+	// 	N.normalize();
+	// 	return 1;
+	// }
+// };
+
 class Geometry {
 public:
-	__device__ Geometry(const Vector &C, double R, const Vector &albedo, bool mirror = 0, double in_refraction_index = 1, double out_refraction_index = 1): C(C), R(R), albedo(albedo), id(-1),
+	__device__ Geometry(const Vector &albedo, int id, bool mirror, double in_refraction_index, double out_refraction_index): albedo(albedo), id(id),
 	mirror(mirror), in_refraction_index(in_refraction_index), out_refraction_index(out_refraction_index) {}
-	__device__ Geometry(): id(-1), mirror(0), in_refraction_index(1), out_refraction_index(1) {};
-	
-	Vector C;
-    double R;
+	__device__ Geometry(): mirror(0), in_refraction_index(1), out_refraction_index(1) {};
+
 	Vector albedo;
 	int id;
 	bool mirror;
 	double in_refraction_index;
 	double out_refraction_index;
-	
-	__device__ bool intersect(const Ray &r, double &t, Vector &N) {
+	__device__ virtual bool intersect(const Ray& r, double &t, Vector &N) { return 0; };
+};
+
+class Sphere: public Geometry {
+public:
+	__device__ Sphere(const Vector &C, double R, const Vector& albedo, bool mirror = 0, double in_refraction_index = 1., double out_refraction_index = 1.) : 
+	C(C), R(R), Geometry(albedo, id, mirror, in_refraction_index, out_refraction_index) {};
+    Vector C;
+    double R;
+	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
 		double delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
 		if (delta < 0)
 			return 0;
@@ -123,9 +163,11 @@ public:
 		t = t1 < 0 ? t2 : t1;
 		N = r.O + t * r.u - C;
 		N.normalize();
+		// printf("Intersect!\n");
 		return 1;
 	}
 };
+
 
 /* Start of code derived from Prof Bonnel's code */
 class TriangleIndices {
@@ -176,6 +218,126 @@ public:
 	BVH *left, *right;
 	BoundingBox bb;
 	int triangle_start, triangle_end;
+};
+
+class TriangleMesh: public Geometry {
+public:
+  	// __device__ ~TriangleMesh() {};
+	__device__ TriangleMesh() {};
+
+	#define between(A, B, C) ((A) <= (B) && (B) <= (C))
+
+	__device__ BoundingBox compute_bbox(int triangle_start, int triangle_end) {
+		BoundingBox bb;
+		for (int i = triangle_start; i < triangle_end; i++) {
+			bb.update(vertices[indices[i].vtxi]);
+			bb.update(vertices[indices[i].vtxj]);
+			bb.update(vertices[indices[i].vtxk]);
+		}
+		return bb;
+	}
+
+	__device__ void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
+		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
+		// printf("%d %d\n", triangle_start, triangle_end);
+		cur->triangle_start = triangle_start;
+		cur->triangle_end = triangle_end;
+		cur->left = NULL;
+		cur->right = NULL;
+		cur->bb = compute_bbox(triangle_start, triangle_end);
+
+		Vector diag = cur->bb.mx - cur->bb.mn;
+		int max_axis;
+		if (diag[0] >= diag[1] && diag[0] >= diag[2])
+			max_axis = 0;
+		else if (diag[1] >= diag[0] && diag[1] >= diag[2])
+			max_axis = 1;
+		else
+			max_axis = 2;
+
+		int pivot = triangle_start;
+		double split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
+		for (int i = triangle_start; i < triangle_end; i++) {
+			double cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
+			if (cen < split) {
+				swap(indices[i], indices[pivot]);
+				pivot++;
+			}
+		}
+
+		if (pivot <= triangle_start || pivot >= triangle_end - 1 || triangle_end - triangle_start < 5) {
+			return;
+		}
+		cur->left = new BVH;
+		cur->right = new BVH;
+		buildBVH(cur->left, triangle_start, pivot);
+		buildBVH(cur->right, pivot, triangle_end);
+	}
+
+	__device__ bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, double &t) {
+		Vector e1 = B - A;
+		Vector e2 = C - A;
+		N = cross(e1, e2);
+		if (dot(r.u, N) == 0) return 0;
+		double beta = dot(e2, cross(A - r.O, r.u)) / dot(r.u, N);
+		double gamma = - dot(e1, cross(A - r.O, r.u)) / dot(r.u, N);
+		if (!between(0, beta, 1) || !between(0, gamma, 1))	return 0;
+		t = dot(A - r.O, N) / dot(r.u, N);
+		return beta + gamma <= 1 && t > 0;
+	}
+	
+	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
+		// printf("inter!\n");
+		// printf("Intersect mesh\n");
+		double t_tmp;
+		if (!bvh.bb.intersect(r, t_tmp)) return 0;
+		BVH* s[30];
+		int s_size = 0;
+		s[s_size++] = &bvh;
+
+
+		double t_min = INF;
+		while(s_size) {
+			const BVH* cur = s[s_size-1];
+			s_size--;
+			if (cur->left) {
+				double t_left, t_right;
+				bool ok_left = cur->left->bb.intersect(r, t_left);
+				bool ok_right = cur->right->bb.intersect(r, t_right);
+				// printf("%d %d\n", ok_left, ok_right);
+				if (ok_left) s[s_size++] = cur->left;
+				if (ok_right) s[s_size++] = cur->right;
+			} else {
+				// Leaf
+				for (int i = cur->triangle_start; i < cur->triangle_end; i++) {
+					double t_cur;
+					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
+					Vector N_triangle;
+					bool inter = moller_trumbore(A, B, C, N_triangle, r, t_cur);
+					if (!inter) continue;
+					if (t_cur > 0 && t_cur < t_min) {
+						t_min = t_cur;
+						N = N_triangle;
+					}
+				} 
+			}
+		}
+		N.normalize();
+		t = t_min;
+		return t_min != INF;
+	}
+	TriangleIndices* indices;
+	int indices_size;
+	Vector* vertices;
+	int vertices_size;
+	// Vector* normals;
+	// int normals_size;
+	// Vector* uvs;
+	// int uvs_size;
+	// Vector* vertexcolors;
+	// int vertexcolors_size;
+	BoundingBox bb;
+	BVH bvh;
 };
 
 class TriangleMeshHost {
@@ -382,6 +544,7 @@ public:
 			Vector N_tmp;
 			bool ok = object_ptr->intersect(r, t, N_tmp);
 			if (ok && t < t_min) {
+				// printf("OKOK\n");
 				t_min = t;
 				id_min = id;
 				N_min = N_tmp;
@@ -589,33 +752,116 @@ public:
 	curandState* rand_states;
 };
 
-__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size) {
+__global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size){
+	auto id = threadIdx.x + blockIdx.x * blockDim.x;
+
+	if(!id){
+		cat->albedo = Vector(0.25, 0.25, 0.25);
+	 	cat->indices_size = indices_size;
+		cat->indices = indices;
+		cat->vertices_size = vertices_size;
+		cat->vertices = vertices;
+		// printf("%d %d\n", indices_size, vertices_size);
+		// cat->normals_size;
+		// cat->normals;
+		// cat->uvs_size;
+		// cat->uvs;
+		// cat->vertexcolors_size;
+		// cat->vertexcolors;
+		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
+		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+	}
+}
+
+__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleMesh *d_mesh) {
 	extern __shared__ double shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	double *shared_colors = shared_memory;
-	Geometry *shared_objects = (Geometry *)&shared_colors[blockDim.x * 3];
+	Sphere *shared_objects = (Sphere *)&shared_colors[blockDim.x * 3];
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
+	TriangleMesh *shared_mesh = (TriangleMesh *)&shared_scene[1];
+
 	if (!threadIdx.x) {
 		shared_scene->L = Vector(-10., 20., 40.);
 		shared_scene->objects_size = 0;
 		shared_scene->intensity = 3e10;
-		#define ADD_OBJ_TO_SHARED_MEM(x) shared_objects[shared_scene->objects_size] = (x),\
-										shared_objects[shared_scene->objects_size].id = shared_scene->objects_size,\
-										shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size],\
-										++shared_scene->objects_size
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, 0, -1000), 940, Vector(0., 1., 0.)));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, -1000, 0), 990, Vector(0., 0., 1.)));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, 1000, 0), 940, Vector(1., 0., 0.)));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.)));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(1000, 0, 0), 940, Vector(1., 1., 0.)));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(0, 0, 1000), 940, Vector(1., 0., 1.)));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5));
-		ADD_OBJ_TO_SHARED_MEM(Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1));
+
+		Sphere tmp = Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
+		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
+		// shared_objects[shared_scene->objects_size] =  Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
+		// tmp->id = shared_scene->objects_size;
+		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
+		++shared_scene->objects_size;
+
+		TriangleMesh mesh = TriangleMesh();
+		mesh.albedo = d_mesh->albedo;
+		mesh.vertices = d_mesh->vertices;
+		mesh.indices = d_mesh->indices;
+		mesh.vertices_size = d_mesh->vertices_size;
+		mesh.indices_size = d_mesh->indices_size;
+		mesh.bvh = d_mesh->bvh;
+		mesh.bb = d_mesh->bb;
+		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
+
+		// printf("%d %d\n", shared_mesh->vertices_size, shared_mesh->indices_size);
+		shared_mesh->id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)shared_mesh;
+		++shared_scene->objects_size;
+
+		tmp = Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
+		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
+		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
+		++shared_scene->objects_size;
+
+
+		tmp = Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
+		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
+		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
+		++shared_scene->objects_size;
+
+		tmp = Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
+		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
+		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
+		++shared_scene->objects_size;
+
+
+		tmp = Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
+		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
+		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
+		++shared_scene->objects_size;
+
+		tmp = Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
+		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
+		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
+		++shared_scene->objects_size;
+
+		// shared_objects[shared_scene->objects_size] = (Geometry) cat;
+		// shared_objects[shared_scene->objects_size].id= shared_scene->objects_size;
+		// ++shared_scene->objects_size;
+		// shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
+		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+		// ++shared_scene->objects_size;
+		// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
+		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+		// ++shared_scene->objects_size;
+		// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
+		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+		// ++shared_scene->objects_size;
 		shared_scene->rand_states = shared_rand_states;
 	}
 	__syncthreads();
+	// printf("Sync\n");
+	
 	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
     int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	Vector C(0, 0, 55);
@@ -635,6 +881,7 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
     shared_colors[threadIdx.x * 3 + 1] = color[1];
     shared_colors[threadIdx.x * 3 + 2] = color[2];
 	__syncthreads();
+	// color.print();
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_colors[blockDim.x * 2 + threadIdx.x];
@@ -659,11 +906,16 @@ int main(int argc, char **argv) {
     char *image;
 	h_colors = new double[H * W * 3 * num_rays];
     image = new char[H * W * 3];
+
+	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
 	
 	// Malloc & transfer to GPU
     gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
     gpuErrchk( cudaMalloc((void**)&d_colors, colors_size) );
 	TriangleMeshHost* mesh_ptr = new TriangleMeshHost(); // cat
+
+	TriangleMesh *d_mesh = NULL;
+
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
 	TriangleIndices* d_indices;
@@ -672,10 +924,22 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
     gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
-
-    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3 + sizeof(Geometry) * 10 + sizeof(curandState) * BLOCK_DIM + sizeof(Scene)>>>(d_colors, W, H, num_rays, num_bounce, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size());
-    gpuErrchk( cudaPeekAtLastError() );
+	
+	gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
+	KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size());
+	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
+
+    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3 + sizeof(Geometry) * 10 + sizeof(TriangleMesh) + sizeof(curandState) * BLOCK_DIM + sizeof(Scene)>>>(d_colors, W, H, num_rays, num_bounce,  d_mesh);
+	gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+	
+	cudaFuncAttributes attr;
+    cudaFuncGetAttributes(&attr, KernelLaunch);
+
+    // std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
+
+
 
     gpuErrchk( cudaMemcpy(h_colors, d_colors, colors_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_s) );
@@ -702,6 +966,16 @@ int main(int argc, char **argv) {
 	delete h_colors;
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
     delete image;
+
+	// int device;
+    // cudaGetDevice(&device);
+
+    // cudaDeviceProp props;
+    // cudaGetDeviceProperties(&props, device);
+
+    // std::cout << "Device name: " << props.name << std::endl;
+    // std::cout << "Shared memory per block: " << props.sharedMemPerBlock << " bytes" << std::endl;
+    // std::cout << "Shared memory per multiprocessor: " << props.sharedMemPerMultiprocessor << " bytes" << std::endl;
 
     auto end_time = std::chrono::system_clock::now();
     std::chrono::duration<double> run_time = end_time-start_time;
