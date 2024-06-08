@@ -939,8 +939,6 @@ int main(int argc, char **argv) {
 
     // std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
 
-
-
     gpuErrchk( cudaMemcpy(h_colors, d_colors, colors_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_s) );
     gpuErrchk( cudaFree(d_colors) );
