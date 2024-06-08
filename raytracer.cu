@@ -102,36 +102,6 @@ public:
 	double refraction_index;
 };
 
-// class Geometry {
-// public:
-// 	__device__ Geometry(const Vector &C, double R, const Vector &albedo, bool mirror = 0, double in_refraction_index = 1, double out_refraction_index = 1): C(C), R(R), albedo(albedo), id(-1),
-// 	mirror(mirror), in_refraction_index(in_refraction_index), out_refraction_index(out_refraction_index) {}
-// 	__device__ Geometry(): id(-1), mirror(0), in_refraction_index(1), out_refraction_index(1) {};
-	
-// 	Vector C;
-//     double R;
-// 	Vector albedo;
-// 	int id;
-// 	bool mirror;
-// 	double in_refraction_index;
-// 	double out_refraction_index;
-// 	__device__ virtual bool intersect(const Ray& r, double &t, Vector &N) { return 0; };
-// };
-	// __device__ bool intersect(const Ray &r, double &t, Vector &N) {
-	// 	double delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
-	// 	if (delta < 0)
-	// 		return 0;
-	// 	double t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
-	// 	double t2 = dot(r.u, C - r.O) + sqrt(delta); // second intersection
-	// 	if (t2 < 0)
-	// 		return 0;
-	// 	t = t1 < 0 ? t2 : t1;
-	// 	N = r.O + t * r.u - C;
-	// 	N.normalize();
-	// 	return 1;
-	// }
-// };
-
 class Geometry {
 public:
 	__device__ Geometry(const Vector &albedo, int id, bool mirror, double in_refraction_index, double out_refraction_index): albedo(albedo), id(id),
@@ -782,19 +752,21 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
 	TriangleMesh *shared_mesh = (TriangleMesh *)&shared_scene[1];
 
-	if (!threadIdx.x) {
+	int idx = (int) threadIdx.x;
+	if (idx == 7) {
 		shared_scene->L = Vector(-10., 20., 40.);
-		shared_scene->objects_size = 0;
+		shared_scene->objects_size = 7;
 		shared_scene->intensity = 3e10;
-
+	}
+	else if(idx == 0){
 		Sphere tmp = Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
-		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
-		// shared_objects[shared_scene->objects_size] =  Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
-		// tmp->id = shared_scene->objects_size;
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-
+		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
+		shared_objects[idx].id = idx;
+		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
+		// ++idx;	
+		shared_scene->rand_states = shared_rand_states;
+	}
+	else if(idx == 1){
 		TriangleMesh mesh = TriangleMesh();
 		mesh.albedo = d_mesh->albedo;
 		mesh.vertices = d_mesh->vertices;
@@ -804,44 +776,42 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 		mesh.bvh = d_mesh->bvh;
 		mesh.bb = d_mesh->bb;
 		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
+		shared_mesh->id = idx;
+		shared_scene->objects[idx] = (Geometry *)shared_mesh;
+		// ++idx;
 
+	} else if(idx == 2){
 		// printf("%d %d\n", shared_mesh->vertices_size, shared_mesh->indices_size);
-		shared_mesh->id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)shared_mesh;
-		++shared_scene->objects_size;
-
-		tmp = Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
-		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-
-
-		tmp = Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
-		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-
-		tmp = Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
-		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-
-
-		tmp = Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
-		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-
-		tmp = Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
-		memcpy(&shared_objects[shared_scene->objects_size], &tmp, sizeof(Sphere));
-		shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		shared_scene->objects[shared_scene->objects_size] = (Geometry *)&shared_objects[shared_scene->objects_size];
-		++shared_scene->objects_size;
-
+		Sphere tmp = Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
+		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
+		shared_objects[idx].id = idx;
+		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
+		// ++idx;
+	} else if(idx == 3){
+		Sphere tmp = Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
+		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
+		shared_objects[idx].id = idx;
+		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
+		// ++idx;
+	} else if(idx == 4){
+		Sphere tmp = Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
+		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
+		shared_objects[idx].id = idx;
+		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
+		// ++idx;
+	} else if(idx == 5){
+		Sphere tmp = Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
+		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
+		shared_objects[idx].id = idx;
+		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
+		// ++idx;
+	} else if(idx == 6){
+		Sphere tmp = Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
+		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
+		shared_objects[idx].id = idx;
+		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
+		// ++threadIdx.x;
+	}
 		// shared_objects[shared_scene->objects_size] = (Geometry) cat;
 		// shared_objects[shared_scene->objects_size].id= shared_scene->objects_size;
 		// ++shared_scene->objects_size;
@@ -857,8 +827,7 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
 		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
 		// ++shared_scene->objects_size;
-		shared_scene->rand_states = shared_rand_states;
-	}
+		
 	__syncthreads();
 	// printf("Sync\n");
 	
@@ -934,8 +903,8 @@ int main(int argc, char **argv) {
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 	
-	cudaFuncAttributes attr;
-    cudaFuncGetAttributes(&attr, KernelLaunch);
+	// cudaFuncAttributes attr;
+    // cudaFuncGetAttributes(&attr, KernelLaunch);
 
     // std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
 
