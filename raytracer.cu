@@ -60,7 +60,7 @@ public:
 	__device__ __host__ double& operator[](int i) { return data[i]; };
 	double data[3];
 
-	__device__ void print(){
+	__device__ void print() {
 		printf("%d %d %d\n", data[0], data[1], data[2]);
 	}
 };
@@ -142,12 +142,14 @@ public:
 /* Start of code derived from Prof Bonnel's code */
 class TriangleIndices {
 public:
-	__device__ __host__ TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {
-	};
+	__device__ __host__ TriangleIndices(
+		int vtxi = -1,
+		int vtxj = -1,
+		int vtxk = -1
+	) : vtxi(vtxi),
+		vtxj(vtxj),
+		vtxk(vtxk) {}
 	int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
-	int uvi, uvj, uvk;  // indices within the uv coordinates array
-	int ni, nj, nk;  // indices within the normals array
-	int group;       // face group
 };
 
 template <typename T> __device__ __host__ void swap ( T& a, T& b ) {
@@ -358,7 +360,6 @@ public:
 				int j0, j1, j2, j3;
 				int k0, k1, k2, k3;
 				int nn;
-				t.group = curGroup;
 
 				char* consumedline = line + 1;
 				int offset;
@@ -368,12 +369,6 @@ public:
 					if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
 					if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
 					if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
-					if (j0 < 0) t.uvi = uvs.size() + j0; else	t.uvi = j0 - 1;
-					if (j1 < 0) t.uvj = uvs.size() + j1; else	t.uvj = j1 - 1;
-					if (j2 < 0) t.uvk = uvs.size() + j2; else	t.uvk = j2 - 1;
-					if (k0 < 0) t.ni = normals.size() + k0; else	t.ni = k0 - 1;
-					if (k1 < 0) t.nj = normals.size() + k1; else	t.nj = k1 - 1;
-					if (k2 < 0) t.nk = normals.size() + k2; else	t.nk = k2 - 1;
 					indices.push_back(t);
 				} else {
 					nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
@@ -381,9 +376,6 @@ public:
 						if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
 						if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
 						if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
-						if (j0 < 0) t.uvi = uvs.size() + j0; else	t.uvi = j0 - 1;
-						if (j1 < 0) t.uvj = uvs.size() + j1; else	t.uvj = j1 - 1;
-						if (j2 < 0) t.uvk = uvs.size() + j2; else	t.uvk = j2 - 1;
 						indices.push_back(t);
 					} else {
 						nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
@@ -397,9 +389,6 @@ public:
 							if (i0 < 0) t.vtxi = vertices.size() + i0; else	t.vtxi = i0 - 1;
 							if (i1 < 0) t.vtxj = vertices.size() + i1; else	t.vtxj = i1 - 1;
 							if (i2 < 0) t.vtxk = vertices.size() + i2; else	t.vtxk = i2 - 1;
-							if (k0 < 0) t.ni = normals.size() + k0; else	t.ni = k0 - 1;
-							if (k1 < 0) t.nj = normals.size() + k1; else	t.nj = k1 - 1;
-							if (k2 < 0) t.nk = normals.size() + k2; else	t.nk = k2 - 1;
 							indices.push_back(t);
 						}
 					}
@@ -412,17 +401,10 @@ public:
 					if (consumedline[0] == '\0') break;
 					nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
 					TriangleIndices t2;
-					t2.group = curGroup;
 					if (nn == 3) {
 						if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
 						if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
 						if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
-						if (j0 < 0) t2.uvi = uvs.size() + j0; else	t2.uvi = j0 - 1;
-						if (j2 < 0) t2.uvj = uvs.size() + j2; else	t2.uvj = j2 - 1;
-						if (j3 < 0) t2.uvk = uvs.size() + j3; else	t2.uvk = j3 - 1;
-						if (k0 < 0) t2.ni = normals.size() + k0; else	t2.ni = k0 - 1;
-						if (k2 < 0) t2.nj = normals.size() + k2; else	t2.nj = k2 - 1;
-						if (k3 < 0) t2.nk = normals.size() + k3; else	t2.nk = k3 - 1;
 						indices.push_back(t2);
 						consumedline = consumedline + offset;
 						i2 = i3;
@@ -434,9 +416,6 @@ public:
 							if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
 							if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
 							if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
-							if (j0 < 0) t2.uvi = uvs.size() + j0; else	t2.uvi = j0 - 1;
-							if (j2 < 0) t2.uvj = uvs.size() + j2; else	t2.uvj = j2 - 1;
-							if (j3 < 0) t2.uvk = uvs.size() + j3; else	t2.uvk = j3 - 1;
 							consumedline = consumedline + offset;
 							i2 = i3;
 							j2 = j3;
@@ -446,10 +425,7 @@ public:
 							if (nn == 2) {
 								if (i0 < 0) t2.vtxi = vertices.size() + i0; else	t2.vtxi = i0 - 1;
 								if (i2 < 0) t2.vtxj = vertices.size() + i2; else	t2.vtxj = i2 - 1;
-								if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;
-								if (k0 < 0) t2.ni = normals.size() + k0; else	t2.ni = k0 - 1;
-								if (k2 < 0) t2.nj = normals.size() + k2; else	t2.nj = k2 - 1;
-								if (k3 < 0) t2.nk = normals.size() + k3; else	t2.nk = k3 - 1;								
+								if (i3 < 0) t2.vtxk = vertices.size() + i3; else	t2.vtxk = i3 - 1;				
 								consumedline = consumedline + offset;
 								i2 = i3;
 								k2 = k3;
@@ -697,27 +673,27 @@ public:
 	curandState* rand_states;
 };
 
-__global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t tex_obj){
-	auto id = threadIdx.x + blockIdx.x * blockDim.x;
+// __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t tex_obj) {
+// 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
 
-	if(!id){
-		cat->albedo = Vector(0.25, 0.25, 0.25);
-	 	cat->indices_size = indices_size;
-		cat->indices = indices;
-		cat->vertices_size = vertices_size;
-		cat->vertices = vertices;
-		// printf("%d %d\n", indices_size, vertices_size);
-		// cat->normals_size;
-		// cat->normals;
-		// cat->uvs_size;
-		// cat->uvs;
-		// cat->vertexcolors_size;
-		// cat->vertexcolors;
-		cat->tex_obj = tex_obj;
-	}
-}
+// 	if (!id) {
+// 		cat->albedo = Vector(0.25, 0.25, 0.25);
+// 	 	cat->indices_size = indices_size;
+// 		cat->indices = indices;
+// 		cat->vertices_size = vertices_size;
+// 		cat->vertices = vertices;
+// 		// printf("%d %d\n", indices_size, vertices_size);
+// 		// cat->normals_size;
+// 		// cat->normals;
+// 		// cat->uvs_size;
+// 		// cat->uvs;
+// 		// cat->vertexcolors_size;
+// 		// cat->vertexcolors;
+// 		cat->tex_obj = tex_obj;
+// 	}
+// }
 
-__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleMesh *d_mesh) {
+__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t tex_obj) {
 	extern __shared__ double shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	double *shared_colors = shared_memory;
@@ -726,83 +702,71 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
 	TriangleMesh *shared_mesh = (TriangleMesh *)&shared_scene[1];
 
-	int idx = (int) threadIdx.x;
+	int idx = (int)threadIdx.x;
 	if (idx == 7) {
 		shared_scene->L = Vector(-10., 20., 40.);
 		shared_scene->objects_size = 7;
 		shared_scene->intensity = 3e10;
-	}
-	else if(idx == 0){
+	} else if (idx == 0) {
 		Sphere tmp = Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		// ++idx;	
 		shared_scene->rand_states = shared_rand_states;
-	}
-	else if(idx == 1){
+	} else if (idx == 1) {
 		TriangleMesh mesh = TriangleMesh();
-		mesh.albedo = d_mesh->albedo;
-		mesh.vertices = d_mesh->vertices;
-		mesh.indices = d_mesh->indices;
-		mesh.vertices_size = d_mesh->vertices_size;
-		mesh.indices_size = d_mesh->indices_size;
-		mesh.tex_obj = d_mesh->tex_obj;
+		mesh.albedo = Vector(0.25, 0.25, 0.25);
+		mesh.vertices = vertices;
+		mesh.indices = indices;
+		mesh.vertices_size = vertices_size;
+		mesh.indices_size = indices_size;
+		mesh.tex_obj = tex_obj;
 		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
 		shared_mesh->id = idx;
 		shared_scene->objects[idx] = (Geometry *)shared_mesh;
-		// ++idx;
-
-	} else if(idx == 2){
-		// printf("%d %d\n", shared_mesh->vertices_size, shared_mesh->indices_size);
+	} else if (idx == 2) {
 		Sphere tmp = Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		// ++idx;
-	} else if(idx == 3){
+	} else if (idx == 3) {
 		Sphere tmp = Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		// ++idx;
-	} else if(idx == 4){
+	} else if (idx == 4) {
 		Sphere tmp = Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		// ++idx;
-	} else if(idx == 5){
+	} else if (idx == 5) {
 		Sphere tmp = Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		// ++idx;
-	} else if(idx == 6){
+	} else if (idx == 6) {
 		Sphere tmp = Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		// ++threadIdx.x;
 	}
-		// shared_objects[shared_scene->objects_size] = (Geometry) cat;
-		// shared_objects[shared_scene->objects_size].id= shared_scene->objects_size;
-		// ++shared_scene->objects_size;
-		// shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
-		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		// ++shared_scene->objects_size;
-		// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
-		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		// ++shared_scene->objects_size;
-		// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
-		// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-		// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-		// ++shared_scene->objects_size;
-		
+	// shared_objects[shared_scene->objects_size] = (Geometry) cat;
+	// shared_objects[shared_scene->objects_size].id= shared_scene->objects_size;
+	// ++shared_scene->objects_size;
+	// shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
+	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+	// ++shared_scene->objects_size;
+	// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
+	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+	// ++shared_scene->objects_size;
+	// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
+	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
+	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
+	// ++shared_scene->objects_size;
+
 	__syncthreads();
-	// printf("Sync\n");
 	
 	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
     int i = (index / num_rays) / W, j = (index / num_rays) % W;
@@ -834,6 +798,10 @@ int main(int argc, char **argv) {
 		std::cout << "Invalid number of arguments!\nThe first argument is number of rays and the second argument is number of bounces.\n";
 		return 0;
 	}
+	
+	/*
+		Measure runtime
+	*/
 	auto start_time = std::chrono::system_clock::now();
 
 	const int num_rays = atoi(argv[1]), num_bounce = atoi(argv[2]);
@@ -854,30 +822,28 @@ int main(int argc, char **argv) {
 	// Malloc & transfer to GPU
     gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
     gpuErrchk( cudaMalloc((void**)&d_colors, colors_size) );
+
+	/*
+		Instantiate cat object
+	*/
 	TriangleMeshHost* mesh_ptr = new TriangleMeshHost(); // cat
-
-	TriangleMesh *d_mesh = NULL;
-
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
 	
+	/*
+		Build, convert, and transfer BVH tree to GPU texture memory
+	*/
 	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
 	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
 	float *arr_bvh = (float *)malloc(sizeof(float) * mesh_ptr->n_bvhs * 10);
 	size_t arr_size = 1;
 	mesh_ptr->bvhTreeToArray(&(mesh_ptr->bvh), arr_bvh, arr_size);
 	// std::cout << mesh_ptr->n_bvhs << ' ' << arr_size << '\n';
-	printf("Debug %f\n", arr_bvh[0]);
+	// printf("Debug %u\n", arr_size);
 	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
 	cudaArray *cu_arr;
 	cudaMallocArray(&cu_arr, &chan_desc, sizeof(float) * mesh_ptr->n_bvhs * 10);
 	cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
-	// cudaMemcpy3DParms copy_params = {0};
-    // copy_params.srcPtr = make_cudaPitchedPtr(arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, mesh_ptr->n_bvhs * 10, 1);
-    // copy_params.dstArray = cu_arr;
-    // copy_params.extent = make_cudaExtent(sizeof(float) * mesh_ptr->n_bvhs * 10, 1, 1);
-    // copy_params.kind = cudaMemcpyHostToDevice;
-    // cudaMemcpy3D(&copy_params);
 	cudaResourceDesc res_desc = {};
     res_desc.resType = cudaResourceTypeArray;
     res_desc.res.array.array = cu_arr;
@@ -889,6 +855,9 @@ int main(int argc, char **argv) {
 	cudaTextureObject_t tex_obj = 0;
     cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr);
 
+	/*
+		Transfer remaining neccessary mesh information to GPU
+	*/
 	TriangleIndices* d_indices;
 	Vector* d_vertices;
     gpuErrchk( cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)) );
@@ -896,20 +865,41 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
     gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
 	
-	gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
-	KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), tex_obj);
+	// TriangleMesh *d_mesh = NULL;
+	// gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
+
+	// KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), tex_obj);
+	// gpuErrchk( cudaPeekAtLastError() );
+    // gpuErrchk( cudaDeviceSynchronize() );
+
+    KernelLaunch<<<
+		GRID_DIM,
+		BLOCK_DIM,
+		sizeof(double) * BLOCK_DIM * 3
+		+ sizeof(Geometry) * 10
+		+ sizeof(TriangleMesh)
+		+ sizeof(curandState) * BLOCK_DIM
+		+ sizeof(Scene)
+	>>>(
+		d_colors,
+		W,
+		H,
+		num_rays,
+		num_bounce,
+		d_indices,
+		mesh_ptr->indices.size(),
+		d_vertices,
+		mesh_ptr->vertices.size(),
+		tex_obj
+	);
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
-    KernelLaunch<<<GRID_DIM, BLOCK_DIM, sizeof(double) * BLOCK_DIM * 3 + sizeof(Geometry) * 10 + sizeof(TriangleMesh) + sizeof(curandState) * BLOCK_DIM + sizeof(Scene)>>>(d_colors, W, H, num_rays, num_bounce,  d_mesh);
-	gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
-	
-	// cudaFuncAttributes attr;
-    // cudaFuncGetAttributes(&attr, KernelLaunch);
-
-    // std::cout << "Shared memory per block: " << attr.sharedSizeBytes << " bytes" << std::endl;
-
+	/*
+		Transfer result back from GPU
+		Clean memory
+		Deduce final result
+	*/
     gpuErrchk( cudaMemcpy(h_colors, d_colors, colors_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_s) );
     gpuErrchk( cudaFree(d_colors) );
@@ -917,7 +907,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaFree(d_vertices) );
 	cudaDestroyTextureObject(tex_obj);
 	cudaFreeArray(cu_arr);
-
+	delete[] arr_bvh;
 	for (int i = 0; i < H; ++i) {
 		for (int j = 0; j < W; ++j) {
 			Vector colors_sum;
@@ -937,19 +927,24 @@ int main(int argc, char **argv) {
 	delete h_colors;
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
     delete image;
-	delete[] arr_bvh;
 
+	/*
+		Inspect GPU architecture
+	*/
 	// int device;
     // cudaGetDevice(&device);
-
     // cudaDeviceProp props;
     // cudaGetDeviceProperties(&props, device);
-
     // std::cout << "Device name: " << props.name << std::endl;
     // std::cout << "Shared memory per block: " << props.sharedMemPerBlock << " bytes" << std::endl;
     // std::cout << "Shared memory per multiprocessor: " << props.sharedMemPerMultiprocessor << " bytes" << std::endl;
 
+	/*
+		Measure runtime
+	*/
     auto end_time = std::chrono::system_clock::now();
-    std::chrono::duration<double> run_time = end_time-start_time;
+    std::chrono::duration<double> run_time = end_time - start_time;
     std::cout << "Rendering time: " << run_time.count() << " s\n";
+
+	return 0;
 }
