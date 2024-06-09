@@ -226,26 +226,26 @@ public:
 	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
 		double t_tmp;
 
-		#define BUILD_BVH(var, idx) var.left = tex1D<float>(tex_obj, (idx) * 10 + 0),\
-									var.right = tex1D<float>(tex_obj, (idx) * 10 + 1),\
+		#define BUILD_BVH(var, idx) var.left = tex1D<float>(bvh, (idx) * 10 + 0),\
+									var.right = tex1D<float>(bvh, (idx) * 10 + 1),\
 									var.bb = BoundingBox(\
 										Vector(\
-											tex1D<float>(tex_obj, (idx) * 10 + 2),\
-											tex1D<float>(tex_obj, (idx) * 10 + 3),\
-											tex1D<float>(tex_obj, (idx) * 10 + 4)\
+											tex1D<float>(bvh, (idx) * 10 + 2),\
+											tex1D<float>(bvh, (idx) * 10 + 3),\
+											tex1D<float>(bvh, (idx) * 10 + 4)\
 										),\
 										Vector(\
-											tex1D<float>(tex_obj, (idx) * 10 + 5),\
-											tex1D<float>(tex_obj, (idx) * 10 + 6),\
-											tex1D<float>(tex_obj, (idx) * 10 + 7)\
+											tex1D<float>(bvh, (idx) * 10 + 5),\
+											tex1D<float>(bvh, (idx) * 10 + 6),\
+											tex1D<float>(bvh, (idx) * 10 + 7)\
 										)\
 									),\
-									var.triangle_start = tex1D<float>(tex_obj, (idx) * 10 + 8),\
-									var.triangle_end = tex1D<float>(tex_obj, (idx) * 10 + 9)
+									var.triangle_start = tex1D<float>(bvh, (idx) * 10 + 8),\
+									var.triangle_end = tex1D<float>(bvh, (idx) * 10 + 9)
 
-		BVHDevice bvh;
-		BUILD_BVH(bvh, 0);
-		if (!bvh.bb.intersect(r, t_tmp)) {
+		BVHDevice root_bvh;
+		BUILD_BVH(root_bvh, 0);
+		if (!root_bvh.bb.intersect(r, t_tmp)) {
 			return 0;
 		}
 
@@ -293,7 +293,7 @@ public:
 	int indices_size;
 	Vector* vertices;
 	int vertices_size;
-	cudaTextureObject_t tex_obj;
+	cudaTextureObject_t bvh;
 };
 
 class TriangleMeshHost {
@@ -673,7 +673,7 @@ public:
 	curandState* rand_states;
 };
 
-// __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t tex_obj) {
+// __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
 // 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
 
 // 	if (!id) {
@@ -689,11 +689,11 @@ public:
 // 		// cat->uvs;
 // 		// cat->vertexcolors_size;
 // 		// cat->vertexcolors;
-// 		cat->tex_obj = tex_obj;
+// 		cat->bvh = bvh;
 // 	}
 // }
 
-__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t tex_obj) {
+__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
 	extern __shared__ double shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	double *shared_colors = shared_memory;
@@ -720,7 +720,7 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 		mesh.indices = indices;
 		mesh.vertices_size = vertices_size;
 		mesh.indices_size = indices_size;
-		mesh.tex_obj = tex_obj;
+		mesh.bvh = bvh;
 		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
 		shared_mesh->id = idx;
 		shared_scene->objects[idx] = (Geometry *)shared_mesh;
@@ -798,7 +798,7 @@ int main(int argc, char **argv) {
 		std::cout << "Invalid number of arguments!\nThe first argument is number of rays and the second argument is number of bounces.\n";
 		return 0;
 	}
-	
+
 	/*
 		Measure runtime
 	*/
@@ -852,8 +852,8 @@ int main(int argc, char **argv) {
     tex_desc.filterMode = cudaFilterModePoint;
     tex_desc.readMode = cudaReadModeElementType;
     tex_desc.normalizedCoords = 0;
-	cudaTextureObject_t tex_obj = 0;
-    cudaCreateTextureObject(&tex_obj, &res_desc, &tex_desc, nullptr);
+	cudaTextureObject_t bvh = 0;
+    cudaCreateTextureObject(&bvh, &res_desc, &tex_desc, nullptr);
 
 	/*
 		Transfer remaining neccessary mesh information to GPU
@@ -868,7 +868,7 @@ int main(int argc, char **argv) {
 	// TriangleMesh *d_mesh = NULL;
 	// gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
 
-	// KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), tex_obj);
+	// KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), bvh);
 	// gpuErrchk( cudaPeekAtLastError() );
     // gpuErrchk( cudaDeviceSynchronize() );
 
@@ -890,7 +890,7 @@ int main(int argc, char **argv) {
 		mesh_ptr->indices.size(),
 		d_vertices,
 		mesh_ptr->vertices.size(),
-		tex_obj
+		bvh
 	);
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -905,7 +905,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaFree(d_colors) );
     gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
-	cudaDestroyTextureObject(tex_obj);
+	cudaDestroyTextureObject(bvh);
 	cudaFreeArray(cu_arr);
 	delete[] arr_bvh;
 	for (int i = 0; i < H; ++i) {
