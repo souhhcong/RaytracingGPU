@@ -541,6 +541,11 @@ public:
 
 class Scene {
 public:
+	__device__ void addObject(Geometry* s) {
+		s->id = objects_size;
+		objects[objects_size++] = s;
+	}
+
 	__device__ bool intersect_all(const Ray& r, Vector &P, Vector &N, int &objectId) {
 		double t_min = INF;
 		int id_min = -1;
@@ -552,7 +557,6 @@ public:
 			Vector N_tmp;
 			bool ok = object_ptr->intersect(r, t, N_tmp);
 			if (ok && t < t_min) {
-				// printf("OKOK\n");
 				t_min = t;
 				id_min = id;
 				N_min = N_tmp;
@@ -673,27 +677,47 @@ public:
 	curandState* rand_states;
 };
 
-// __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
-// 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
+__global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
+ 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
+	if (!id) {
+		s->L = Vector(-10., 20., 40.);
+		s->objects_size = 0;
+		s->intensity = 3e10;
+		// s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
+		s->addObject(new Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.))); // green fore wall
+		s->addObject(new Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.))); // blue floor
+		s->addObject(new Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.))); // red ceiling
+		s->addObject(new Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.))); // cyan left wall
+		s->addObject(new Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.))); // yellow right wall
+		s->addObject(new Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.))); // magenta back wall
+		// s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
+		// s->addObject(new Sphere(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5)); // inner nested ssphere
+		// s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
 
-// 	if (!id) {
-// 		cat->albedo = Vector(0.25, 0.25, 0.25);
-// 	 	cat->indices_size = indices_size;
-// 		cat->indices = indices;
-// 		cat->vertices_size = vertices_size;
-// 		cat->vertices = vertices;
-// 		// printf("%d %d\n", indices_size, vertices_size);
-// 		// cat->normals_size;
-// 		// cat->normals;
-// 		// cat->uvs_size;
-// 		// cat->uvs;
-// 		// cat->vertexcolors_size;
-// 		// cat->vertexcolors;
-// 		cat->bvh = bvh;
-// 	}
-// }
+		TriangleMesh* cat = new TriangleMesh();
+		cat->albedo = Vector(0.25, 0.25, 0.25);
+	 	cat->indices_size = indices_size;
+		cat->indices = indices;
+		cat->vertices_size = vertices_size;
+		cat->vertices = vertices;
+		// printf("%d %d\n", indices_size, vertices_size);
+		// cat->normals_size;
+		// cat->normals;
+		// cat->uvs_size;
+		// cat->uvs;
+		// cat->vertexcolors_size;
+		// cat->vertexcolors;
+		// cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
+		// cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+		// cat->bvh = bvh;
+		// s->addObject(cat);
+		s->rand_states = new curandState[blockDim.x];
+	}
+	__syncthreads();
+  	curand_init(123456, id, 0, s->rand_states + id);
+}
 
-__global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
+__global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
 	extern __shared__ double shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	double *shared_colors = shared_memory;
@@ -701,74 +725,8 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
 	TriangleMesh *shared_mesh = (TriangleMesh *)&shared_scene[1];
-
-	int idx = (int)threadIdx.x;
-	if (idx == 7) {
-		shared_scene->L = Vector(-10., 20., 40.);
-		shared_scene->objects_size = 7;
-		shared_scene->intensity = 3e10;
-	} else if (idx == 0) {
-		Sphere tmp = Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
-		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
-		shared_objects[idx].id = idx;
-		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-		shared_scene->rand_states = shared_rand_states;
-	} else if (idx == 1) {
-		TriangleMesh mesh = TriangleMesh();
-		mesh.albedo = Vector(0.25, 0.25, 0.25);
-		mesh.vertices = vertices;
-		mesh.indices = indices;
-		mesh.vertices_size = vertices_size;
-		mesh.indices_size = indices_size;
-		mesh.bvh = bvh;
-		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
-		shared_mesh->id = idx;
-		shared_scene->objects[idx] = (Geometry *)shared_mesh;
-	} else if (idx == 2) {
-		Sphere tmp = Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
-		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
-		shared_objects[idx].id = idx;
-		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-	} else if (idx == 3) {
-		Sphere tmp = Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
-		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
-		shared_objects[idx].id = idx;
-		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-	} else if (idx == 4) {
-		Sphere tmp = Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
-		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
-		shared_objects[idx].id = idx;
-		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-	} else if (idx == 5) {
-		Sphere tmp = Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
-		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
-		shared_objects[idx].id = idx;
-		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-	} else if (idx == 6) {
-		Sphere tmp = Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
-		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
-		shared_objects[idx].id = idx;
-		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
-	}
-	// shared_objects[shared_scene->objects_size] = (Geometry) cat;
-	// shared_objects[shared_scene->objects_size].id= shared_scene->objects_size;
-	// ++shared_scene->objects_size;
-	// shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
-	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-	// ++shared_scene->objects_size;
-	// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
-	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-	// ++shared_scene->objects_size;
-	// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
-	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
-	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
-	// ++shared_scene->objects_size;
-
-	__syncthreads();
 	
-	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
+	// curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
     int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	Vector C(0, 0, 55);
 	double alpha = PI/3;
@@ -777,12 +735,12 @@ __global__ void KernelLaunch(double *colors, int W, int H, int num_rays, int num
     Vector u_center((double)j - (double)W / 2 + 0.5, (double)H / 2 - i - 0.5, z);
 	// Box-muller for anti-aliasing
 	double sigma = 0.2;
-	double r1 = uniform(shared_scene->rand_states, seed);
-	double r2 = uniform(shared_scene->rand_states, seed);
+	double r1 = uniform(s->rand_states, seed);
+	double r2 = uniform(s->rand_states, seed);
 	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
 	u.normalize();
 	Ray r(C, u);
-	Vector color = shared_scene->getColorIterative(r, num_bounce);
+	Vector color = s->getColorIterative(r, num_bounce);
 	shared_colors[threadIdx.x * 3 + 0] = color[0];
     shared_colors[threadIdx.x * 3 + 1] = color[1];
     shared_colors[threadIdx.x * 3 + 2] = color[2];
@@ -868,7 +826,7 @@ int main(int argc, char **argv) {
 	// TriangleMesh *d_mesh = NULL;
 	// gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
 
-	// KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), bvh);
+	KernelInit<<<1, BLOCK_DIM>>>(d_s, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), bvh);
 	// gpuErrchk( cudaPeekAtLastError() );
     // gpuErrchk( cudaDeviceSynchronize() );
 
@@ -881,6 +839,7 @@ int main(int argc, char **argv) {
 		+ sizeof(curandState) * BLOCK_DIM
 		+ sizeof(Scene)
 	>>>(
+		d_s,
 		d_colors,
 		W,
 		H,
