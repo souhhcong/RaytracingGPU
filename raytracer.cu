@@ -233,27 +233,27 @@ public:
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
 	 float t_tmp;
 
-		#define BUILD_BVH(var, idx) var.left = tex1D<float>(bvh, (idx) * 10 + 0),\
-									var.right = tex1D<float>(bvh, (idx) * 10 + 1),\
+		#define BUILD_BVH(var, idx) var.left = bvh[(idx) * 10 + 0],\
+									var.right = bvh[(idx) * 10 + 1],\
 									var.bb = BoundingBox(\
 										Vector(\
-											tex1D<float>(bvh, (idx) * 10 + 2),\
-											tex1D<float>(bvh, (idx) * 10 + 3),\
-											tex1D<float>(bvh, (idx) * 10 + 4)\
+											bvh[(idx) * 10 + 2],\
+											bvh[(idx) * 10 + 3],\
+											bvh[(idx) * 10 + 4]\
 										),\
 										Vector(\
-											tex1D<float>(bvh, (idx) * 10 + 5),\
-											tex1D<float>(bvh, (idx) * 10 + 6),\
-											tex1D<float>(bvh, (idx) * 10 + 7)\
+											bvh[(idx) * 10 + 5],\
+											bvh[(idx) * 10 + 6],\
+											bvh[(idx) * 10 + 7]\
 										)\
 									),\
-									var.triangle_start = tex1D<float>(bvh, (idx) * 10 + 8),\
-									var.triangle_end = tex1D<float>(bvh, (idx) * 10 + 9)
+									var.triangle_start = bvh[(idx) * 10 + 8],\
+									var.triangle_end = bvh[(idx) * 10 + 9]
 
 		Vector tmp = Vector(\
-								tex1D<float>(bvh, (0) * 10 + 2),\
-								tex1D<float>(bvh, (0) * 10 + 3),\
-								tex1D<float>(bvh, (0) * 10 + 4)\
+								bvh[(0) * 10 + 2],\
+								bvh[(0) * 10 + 3],\
+								bvh[(0) * 10 + 4]\
 							);
 		// PRINT_VEC(tmp);
 		BVHDevice root_bvh;
@@ -313,7 +313,7 @@ public:
 	int indices_size;
 	Vector* vertices;
 	int vertices_size;
-	cudaTextureObject_t bvh;
+	float* bvh;
 };
 
 class TriangleMeshHost {
@@ -595,7 +595,7 @@ public:
 		return id_min != -1;
 	}
 
-	__device__ Vector getColorIterative(const Ray& input_ray, int max_ray_depth) {
+	__device__ Vector getColorIterative(curandState *rand_state, const Ray& input_ray, int max_ray_depth) {
 		int types[MAX_RAY_DEPTH];
 		Vector direct_colors[MAX_RAY_DEPTH];
 		Vector indirect_albedos[MAX_RAY_DEPTH];
@@ -668,8 +668,8 @@ public:
 					// printf("%f %f\n", (P_prime - P_adjusted).norm2(), (L - P_adjusted).norm2());
 					// Get indirect color by launching ray
 					unsigned int seed = threadIdx.x;
-					float r1 = uniform(rand_states, seed);
-					float r2 = uniform(rand_states, seed);
+					float r1 = curand_uniform(rand_state);
+					float r2 = curand_uniform(rand_state);
 					float x = cos(2 * PI * r1) * sqrt(1 - r2);
 					float y = sin(2 * PI * r1) * sqrt(1 - r2);
 					float z = sqrt(r2);
@@ -704,14 +704,14 @@ public:
 
 	Geometry* objects[10];
     int objects_size = 0;
- float intensity = 3e10;
+ 	float intensity = 3e10;
 	Vector L;
 	curandState* rand_states;
 };
 
-__global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
- 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
-	if (!id) {
+__global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float* bvh) {
+ 	int threadId = threadIdx.x + blockIdx.x * blockDim.x;
+	if (!threadId) {
 		s->L = Vector(-10., 20., 40.);
 		s->objects_size = 0;
 		s->intensity = 3e10;
@@ -744,45 +744,61 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		cat->bvh = bvh;
 
 		s->addObject(cat);
-		s->rand_states = new curandState[blockDim.x];
+		// s->rand_states = new curandState[blockDim.x];
 	}
-	__syncthreads();
-  	curand_init(123456, id, 0, s->rand_states + id);
+	// __syncthreads();
+  	// curand_init(123456, id, 0, s->rand_states + id);
 }
 
-__global__ void KernelLaunch(Scene *s, float *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
-	extern __shared__ float shared_memory[];
-    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
- float *shared_colors = shared_memory;
-	Sphere *shared_objects = (Sphere *)&shared_colors[blockDim.x * 3];
-	curandState *shared_rand_states = (curandState *)&shared_objects[10];
-	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
-	TriangleMesh *shared_mesh = (TriangleMesh *)&shared_scene[1];
+__global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size) {
+    // size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+	unsigned int x = blockIdx.x*blockDim.x + threadIdx.x;
+	unsigned int y = blockIdx.y*blockDim.y + threadIdx.y;
+	int threadId = (blockIdx.x + blockIdx.y * gridDim.x) * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+	curandState rand_state; // state of the random number generator, to prevent repetition
+	curand_init(threadId, 0, 0, &rand_state);
+
+	Vector outcolor;
+	int i = y*W + x; // pixel index in buffer
+	// float coordx = (float) x / W; // pixel x-coordinate on screen
+	// int coordy = (float) y / H;
+
+	outcolor = Vector(0.f, 0.f, 0.f);
 	
 	// curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
-    int i = (index / num_rays) / W, j = (index / num_rays) % W;
+    // int i = (index / num_rays) / W, j = (index / num_rays) % W;
+	
+	// printf("%d %d\n", x, y);
 	Vector C(0, 0, 55);
 	float alpha = PI/3;
 	float z = -W / (2 * tan(alpha/2));
-    unsigned int seed = threadIdx.x;
-    Vector u_center((float)j -  (float)W / 2 + 0.5,  (float)H / 2 - i - 0.5, z);
+
+    Vector u_center(x -  (float)W / 2 + 0.5,  (float)H / 2 - y - 0.5, z);
 	// Box-muller for anti-aliasing
 
 	float sigma = 0.2;
-	float r1 = uniform(s->rand_states, seed);
-	float r2 = uniform(s->rand_states, seed);
-	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
-	u.normalize();
-	Ray r(C, u);
-	Vector color = s->getColorIterative(r, num_bounce);
+	for(int i = 0; i < num_rays; i++){
+		float r1 = curand_uniform(&rand_state);
+		float r2 = curand_uniform(&rand_state);
+		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
+		u.normalize();
+		Ray r(C, u);
+		Vector color = s->getColorIterative(&rand_state, r, num_bounce);
+		outcolor = outcolor + color;
+	}
 	// PRINT_VEC(color);
-	shared_colors[threadIdx.x * 3 + 0] = color[0];
-    shared_colors[threadIdx.x * 3 + 1] = color[1];
-    shared_colors[threadIdx.x * 3 + 2] = color[2];
-	__syncthreads();
-	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
-	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
-	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_colors[blockDim.x * 2 + threadIdx.x];
+	outcolor = outcolor / num_rays;
+
+	// if(x < 100 && y < 100)
+	// PRINT_VEC(outcolor);
+	// shared_colors[threadIdx.x * 3 + 0] = color[0];
+    // shared_colors[threadIdx.x * 3 + 1] = color[1];
+    // shared_colors[threadIdx.x * 3 + 2] = color[2];
+	// __syncthreads();
+	colors[i] = outcolor;
+	// colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
+	// colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
+	// colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_colors[blockDim.x * 2 + threadIdx.x];
 }
 
 int main(int argc, char **argv) {
@@ -804,16 +820,16 @@ int main(int argc, char **argv) {
 	int GRID_DIM = W * H * num_rays / BLOCK_DIM;
 	
 	Scene *d_s;
-	float *h_colors, *d_colors;
+	Vector *h_colors, *d_colors;
     char *image;
-	h_colors = new float[H * W * 3 * num_rays];
+	h_colors = new Vector[H * W];
     image = new char[H * W * 3];
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
 	
 	// Malloc & transfer to GPU
     gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
-    gpuErrchk( cudaMalloc((void**)&d_colors, colors_size) );
+    gpuErrchk( cudaMalloc((void**)&d_colors, H * W * sizeof(Vector)) );
 
 	/*
 		Instantiate cat object
@@ -827,9 +843,6 @@ int main(int argc, char **argv) {
 	/*
 		Build, convert, and transfer BVH tree to GPU texture memory
 	*/
-	// for(int i = 0; i < 10; i++){
-	// 	PRINT_VEC(mesh_ptr->vertices[i]);
-	// }
 	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
 	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
 	float *arr_bvh = (float *)malloc(sizeof(float) * mesh_ptr->n_bvhs * 10);
@@ -837,20 +850,10 @@ int main(int argc, char **argv) {
 	mesh_ptr->bvhTreeToArray(&(mesh_ptr->bvh), arr_bvh, arr_size);
 	// std::cout << mesh_ptr->n_bvhs << ' ' << arr_size << '\n';
 	// printf("Debug %u\n", arr_size);
-	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-	cudaArray *cu_arr;
-	cudaMallocArray(&cu_arr, &chan_desc, sizeof(float) * mesh_ptr->n_bvhs * 10);
-	cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
-	cudaResourceDesc res_desc = {};
-    res_desc.resType = cudaResourceTypeArray;
-    res_desc.res.array.array = cu_arr;
-	cudaTextureDesc tex_desc = {};
-    tex_desc.addressMode[0] = cudaAddressModeClamp;
-    tex_desc.filterMode = cudaFilterModePoint;
-    tex_desc.readMode = cudaReadModeElementType;
-    tex_desc.normalizedCoords = 0;
-	cudaTextureObject_t bvh = 0;
-    cudaCreateTextureObject(&bvh, &res_desc, &tex_desc, nullptr);
+	float* d_bvh;
+	gpuErrchk(cudaMalloc((void**)&d_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10));
+	gpuErrchk(cudaMemcpy(d_bvh, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice));
+
 
 	/*
 		Transfer remaining neccessary mesh information to GPU
@@ -865,19 +868,28 @@ int main(int argc, char **argv) {
 	// TriangleMesh *d_mesh = NULL;
 	// gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
 
-	KernelInit<<<1, BLOCK_DIM>>>(d_s, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), bvh);
+	KernelInit<<<1, 1>>>(d_s, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), d_bvh);
 	// gpuErrchk( cudaPeekAtLastError() );
     // gpuErrchk( cudaDeviceSynchronize() );
 
-    KernelLaunch<<<
-		GRID_DIM,
-		BLOCK_DIM,
-		sizeof (float) * BLOCK_DIM * 3
-		+ sizeof(Geometry) * 10
-		+ sizeof(TriangleMesh)
-		+ sizeof(curandState) * BLOCK_DIM
-		+ sizeof(Scene)
-	>>>(
+	dim3 block(16, 16, 1);
+	dim3 grid(W / block.x, H / block.y, 1);
+
+	int threadsPerBlock = 256;
+	int fullBlockperGrid = ((W * H) + threadsPerBlock - 1) / threadsPerBlock;
+
+    // KernelLaunch<<<
+	// 	GRID_DIM,
+	// 	BLOCK_DIM,
+	// 	sizeof (float) * BLOCK_DIM * 3
+	// 	+ sizeof(Geometry) * 10
+	// 	+ sizeof(TriangleMesh)
+	// 	+ sizeof(curandState) * BLOCK_DIM
+	// 	+ sizeof(Scene)
+	// >>>
+	
+	
+	KernelLaunch<<<grid, block>>>(
 		d_s,
 		d_colors,
 		W,
@@ -887,8 +899,7 @@ int main(int argc, char **argv) {
 		d_indices,
 		mesh_ptr->indices.size(),
 		d_vertices,
-		mesh_ptr->vertices.size(),
-		bvh
+		mesh_ptr->vertices.size()
 	);
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -898,44 +909,22 @@ int main(int argc, char **argv) {
 		Clean memory
 		Deduce final result
 	*/
-    gpuErrchk( cudaMemcpy(h_colors, d_colors, colors_size, cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(h_colors, d_colors, H * W * sizeof(Vector), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_s) );
     gpuErrchk( cudaFree(d_colors) );
     gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
-	cudaDestroyTextureObject(bvh);
-	cudaFreeArray(cu_arr);
 	delete[] arr_bvh;
 	for (int i = 0; i < H; ++i) {
 		for (int j = 0; j < W; ++j) {
-			Vector colors_sum;
-			for (int t = 0; t < num_rays; ++t) {
-				colors_sum = colors_sum + Vector(
-					h_colors[((i * W + j) * num_rays + t) * 3 + 0],
-					h_colors[((i * W + j) * num_rays + t) * 3 + 1],
-					h_colors[((i * W + j) * num_rays + t) * 3 + 2]
-				);
-			}
-			Vector colors_avg = colors_sum / num_rays;
-			image[(i * W + j) * 3 + 0] = min(std::pow(colors_avg[0], 1./2.2), 255.);
-			image[(i * W + j) * 3 + 1] = min(std::pow(colors_avg[1], 1./2.2), 255.);
-			image[(i * W + j) * 3 + 2] = min(std::pow(colors_avg[2], 1./2.2), 255.);
+			image[(i * W + j) * 3 + 0] = min(std::pow(h_colors[(i * W + j)][0], 1./2.2), 255.);
+			image[(i * W + j) * 3 + 1] = min(std::pow(h_colors[(i * W + j)][1], 1./2.2), 255.);
+			image[(i * W + j) * 3 + 2] = min(std::pow(h_colors[(i * W + j)][2], 1./2.2), 255.);
 		}
 	}
 	delete h_colors;
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
     delete image;
-
-	/*
-		Inspect GPU architecture
-	*/
-	// int device;
-    // cudaGetDevice(&device);
-    // cudaDeviceProp props;
-    // cudaGetDeviceProperties(&props, device);
-    // std::cout << "Device name: " << props.name << std::endl;
-    // std::cout << "Shared memory per block: " << props.sharedMemPerBlock << " bytes" << std::endl;
-    // std::cout << "Shared memory per multiprocessor: " << props.sharedMemPerMultiprocessor << " bytes" << std::endl;
 
 	/*
 		Measure runtime
