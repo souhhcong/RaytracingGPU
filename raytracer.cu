@@ -17,9 +17,10 @@
 #ifndef PI
     #define PI 3.14159265358979323846
 #endif
-#define PRINT_VEC(v) (printf("%s: (%lf %lf %lf)\n", #v, (v)[0], (v)[1], (v)[2]))
+#define PRINT_VEC(v) (printf("%s: (%f %f %f)\n", #v, (v)[0], (v)[1], (v)[2]))
 #define INF (1e9+9)
 #define MAX_RAY_DEPTH 10
+// #define float float
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
@@ -30,35 +31,35 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    }
 }
 
-__device__ inline double uniform(curandState *rand_states, unsigned int tid) {
+__device__ inline float uniform(curandState *rand_states, unsigned int tid) {
     curandState local_state = rand_states[tid];
-    double RANDOM = curand_uniform( &local_state );
+ 	float RANDOM = curand_uniform( &local_state );
     rand_states[tid] = local_state;
 	return RANDOM;
 }
 
 class Vector {
 public:
-	__device__ __host__ Vector(double x = 0, double y = 0, double z = 0) {
+	__device__ __host__ Vector(float x = 0, float y = 0, float z = 0) {
 		data[0] = x;
 		data[1] = y;
 		data[2] = z;
 	}
-	__device__ __host__ double norm2() const {
+	__device__ __host__ float norm2() const {
 		return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
 	}
-	__device__ __host__ double norm() const {
+	__device__ __host__ float norm() const {
 		return sqrt(norm2());
 	}
 	__device__ __host__ void normalize() {
-		double n = norm();
+		float n = norm();
 		data[0] /= n;
 		data[1] /= n;
 		data[2] /= n;
 	}
-	__device__ __host__ double operator[](int i) const { return data[i]; };
-	__device__ __host__ double& operator[](int i) { return data[i]; };
-	double data[3];
+	__device__ __host__ float operator[](int i) const { return data[i]; };
+	__device__ __host__ float& operator[](int i) { return data[i]; };
+	float data[3];
 
 	__device__ void print() {
 		printf("%d %d %d\n", data[0], data[1], data[2]);
@@ -74,20 +75,20 @@ __device__ __host__ Vector operator-(const Vector& a, const Vector& b) {
 __device__ __host__ Vector operator-(const Vector& a) {
 	return Vector(-a[0], -a[1], -a[2]);
 }
-__device__ __host__ Vector operator*(const double a, const Vector& b) {
+__device__ __host__ Vector operator*(const float a, const Vector& b) {
 	return Vector(a*b[0], a*b[1], a*b[2]);
 }
-__device__ __host__ Vector operator*(const Vector& a, const double b) {
+__device__ __host__ Vector operator*(const Vector& a, const float b) {
 	return Vector(a[0]*b, a[1]*b, a[2]*b);
 }
 // Element wise vector multiplication
 __device__ __host__ Vector operator*(const Vector& a, const Vector& b) {
 	return Vector(a[0]*b[0], a[1]*b[1], a[2]*b[2]);
 }
-__device__ __host__ Vector operator/(const Vector& a, const double b) {
+__device__ __host__ Vector operator/(const Vector& a, const float b) {
 	return Vector(a[0] / b, a[1] / b, a[2] / b);
 }
-__device__ __host__ double dot(const Vector& a, const Vector& b) {
+__device__ __host__ float dot(const Vector& a, const Vector& b) {
 	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 __device__ __host__ Vector cross(const Vector& a, const Vector& b) {
@@ -96,38 +97,39 @@ __device__ __host__ Vector cross(const Vector& a, const Vector& b) {
 
 class Ray {
 public:
-	__device__ Ray(const Vector &O, const Vector &u, double refraction_index = 1.) : O(O), u(u), refraction_index(refraction_index) {};
+	__device__ Ray(const Vector &O, const Vector &u, float refraction_index = 1.) : O(O), u(u), refraction_index(refraction_index) {};
 	// ...
 	Vector O, u;
-	double refraction_index;
+ float refraction_index;
 };
 
 class Geometry {
 public:
-	__device__ Geometry(const Vector &albedo, int id, bool mirror, double in_refraction_index, double out_refraction_index): albedo(albedo), id(id),
+	__device__ Geometry(const Vector &albedo, int id, bool mirror, float in_refraction_index, float out_refraction_index): albedo(albedo), id(id),
 	mirror(mirror), in_refraction_index(in_refraction_index), out_refraction_index(out_refraction_index) {}
 	__device__ Geometry(): mirror(0), in_refraction_index(1), out_refraction_index(1) {};
 
 	Vector albedo;
 	int id;
 	bool mirror;
-	double in_refraction_index;
-	double out_refraction_index;
-	__device__ virtual bool intersect(const Ray& r, double &t, Vector &N) { return 0; };
+ float in_refraction_index;
+ float out_refraction_index;
+	__device__ virtual bool intersect(const Ray& r, float &t, Vector &N) { return 0; };
 };
 
 class Sphere: public Geometry {
 public:
-	__device__ Sphere(const Vector &C, double R, const Vector& albedo, bool mirror = 0, double in_refraction_index = 1., double out_refraction_index = 1.) : 
+	__host__ __device__ Sphere(){};
+	__device__ Sphere(const Vector &C, float R, const Vector& albedo, bool mirror = 0, float in_refraction_index = 1., float out_refraction_index = 1.) : 
 	C(C), R(R), Geometry(albedo, id, mirror, in_refraction_index, out_refraction_index) {};
     Vector C;
-    double R;
-	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
-		double delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
+ float R;
+	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
+	 float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
 		if (delta < 0)
 			return 0;
-		double t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
-		double t2 = dot(r.u, C - r.O) + sqrt(delta); // second intersection
+	 float t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
+	 float t2 = dot(r.u, C - r.O) + sqrt(delta); // second intersection
 		if (t2 < 0)
 			return 0;
 		t = t1 < 0 ? t2 : t1;
@@ -176,17 +178,22 @@ public:
 		mx[2] = max(mx[2], vec[2]);
 	}
 
-	__device__ __host__ inline bool intersect(const Ray &r, double &t) {
-		double t0x = (mn[0] - r.O[0]) / r.u[0];
-		double t0y = (mn[1] - r.O[1]) / r.u[1];
-		double t0z = (mn[2] - r.O[2]) / r.u[2];
-		double t1x = (mx[0] - r.O[0]) / r.u[0];
-		double t1y = (mx[1] - r.O[1]) / r.u[1];
-		double t1z = (mx[2] - r.O[2]) / r.u[2];
-		if (t0x > t1x) swap(t0x, t1x);
-		if (t0y > t1y) swap(t0y, t1y);
-		if (t0z > t1z) swap(t0z, t1z);
-		return min(t1x, min(t1y, t1z)) > max(t0x, max(t0y, t0z));
+	__device__ __host__ inline bool intersect(const Ray &r, float &t) {
+	 float t0x = (mn[0] - r.O[0]) / r.u[0];
+	 float t0y = (mn[1] - r.O[1]) / r.u[1];
+	 float t0z = (mn[2] - r.O[2]) / r.u[2];
+	 float t1x = (mx[0] - r.O[0]) / r.u[0];
+	 float t1y = (mx[1] - r.O[1]) / r.u[1];
+	 float t1z = (mx[2] - r.O[2]) / r.u[2];
+	if (t0x > t1x) swap(t0x, t1x);
+	if (t0y > t1y) swap(t0y, t1y);
+	if (t0z > t1z) swap(t0z, t1z);
+	
+	// printf("%f %f %f", t0x, t0y, t0z)
+	// PRINT_VEC(mn);
+	// PRINT_VEC(mx);
+
+	return min(t1x, min(t1y, t1z)) > max(t0x, max(t0y, t0z));
 	}
 };
 
@@ -211,20 +218,20 @@ public:
 
 	#define between(A, B, C) ((A) <= (B) && (B) <= (C))
 
-	__device__ bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, double &t) {
+	__device__ bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, float &t) {
 		Vector e1 = B - A;
 		Vector e2 = C - A;
 		N = cross(e1, e2);
 		if (dot(r.u, N) == 0) return 0;
-		double beta = dot(e2, cross(A - r.O, r.u)) / dot(r.u, N);
-		double gamma = - dot(e1, cross(A - r.O, r.u)) / dot(r.u, N);
+		float beta = dot(e2, cross(A - r.O, r.u)) / dot(r.u, N);
+		float gamma = - dot(e1, cross(A - r.O, r.u)) / dot(r.u, N);
 		if (!between(0, beta, 1) || !between(0, gamma, 1))	return 0;
 		t = dot(A - r.O, N) / dot(r.u, N);
 		return beta + gamma <= 1 && t > 0;
 	}
 	
-	__device__ bool intersect(const Ray &r, double &t, Vector &N) override {
-		double t_tmp;
+	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
+	 float t_tmp;
 
 		#define BUILD_BVH(var, idx) var.left = tex1D<float>(bvh, (idx) * 10 + 0),\
 									var.right = tex1D<float>(bvh, (idx) * 10 + 1),\
@@ -243,6 +250,12 @@ public:
 									var.triangle_start = tex1D<float>(bvh, (idx) * 10 + 8),\
 									var.triangle_end = tex1D<float>(bvh, (idx) * 10 + 9)
 
+		Vector tmp = Vector(\
+								tex1D<float>(bvh, (0) * 10 + 2),\
+								tex1D<float>(bvh, (0) * 10 + 3),\
+								tex1D<float>(bvh, (0) * 10 + 4)\
+							);
+		// PRINT_VEC(tmp);
 		BVHDevice root_bvh;
 		BUILD_BVH(root_bvh, 0);
 		if (!root_bvh.bb.intersect(r, t_tmp)) {
@@ -254,7 +267,7 @@ public:
 		s[s_size++] = 0;
 
 
-		double t_min = INF;
+	 float t_min = INF;
 		while (s_size) {
 			int cur = s[s_size-1];
 			s_size--;
@@ -265,7 +278,7 @@ public:
 				BUILD_BVH(left_bvh, cur_bvh.left);
 				BVHDevice right_bvh;
 				BUILD_BVH(right_bvh, cur_bvh.right);
-				double t_left, t_right;
+			 float t_left, t_right;
 				bool ok_left = left_bvh.bb.intersect(r, t_left);
 				bool ok_right = right_bvh.bb.intersect(r, t_right);
 				if (ok_left) s[s_size++] = cur_bvh.left;
@@ -273,20 +286,27 @@ public:
 			} else {
 				// Leaf
 				for (int i = cur_bvh.triangle_start; i < cur_bvh.triangle_end; i++) {
-					double t_cur;
+				 float t_cur;
 					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
 					Vector N_triangle;
 					bool inter = moller_trumbore(A, B, C, N_triangle, r, t_cur);
 					if (!inter) continue;
-					if (t_cur > 0 && t_cur < t_min) {
+					if (t_cur > 1e-4f && t_cur < t_min) {
 						t_min = t_cur;
 						N = N_triangle;
+						//
+						// PRINT_VEC(N);
 					}
 				} 
 			}
 		}
 		N.normalize();
 		t = t_min;
+		if(t_min != INF){
+			// printf("inter triangle %f\n", t_min);
+		}else{
+			printf("no hit\n");
+		}
 		return t_min != INF;
 	}
 	TriangleIndices* indices;
@@ -300,6 +320,11 @@ class TriangleMeshHost {
 public:
  	~TriangleMeshHost() {}
 	TriangleMeshHost() {};
+	void rescale(float scale, Vector offset){
+		for(int i = 0; i < vertices.size(); i++){
+			vertices[i] = vertices[i] * scale + offset;
+		}
+	}
 
 	void readOBJ(const char* obj) {
 
@@ -331,16 +356,16 @@ public:
 
 				Vector col;
 				if (sscanf(line, "v %lf %lf %lf %lf %lf %lf\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
-					col[0] = std::min(1., std::max(0., col[0]));
-					col[1] = std::min(1., std::max(0., col[1]));
-					col[2] = std::min(1., std::max(0., col[2]));
+					col[0] = std::min(1.f, std::max(0.f, col[0]));
+					col[1] = std::min(1.f, std::max(0.f, col[1]));
+					col[2] = std::min(1.f, std::max(0.f, col[2]));
 
 					vertices.push_back(vec);
 					vertexcolors.push_back(col);
 
 				} else {
-					sscanf(line, "v %lf %lf %lf\n", &vec[0], &vec[1], &vec[2]);
-					vec = vec*0.8+Vector(0, -10, 0);
+					sscanf(line, "v %f %f %f\n", &vec[0], &vec[1], &vec[2]);
+					vec = vec*0.8f+Vector(0.f, -10.f, 0.f);
 					vertices.push_back(vec);
 				}
 			}
@@ -494,9 +519,9 @@ public:
 			max_axis = 2;
 
 		int pivot = triangle_start;
-		double split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
+	 float split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
 		for (int i = triangle_start; i < triangle_end; i++) {
-			double cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
+		 float cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
 			if (cen < split) {
 				swap(indices[i], indices[pivot]);
 				pivot++;
@@ -515,6 +540,8 @@ public:
 	void bvhTreeToArray(BVH* cur, float *arr_bvh, size_t &arr_size, size_t arr_idx = 0) {
 		// std::cout << arr_idx << ' ' << cur->triangle_start << ' ' << cur->triangle_end << '\n';
 		// std::cout << "rfgsg\n";
+		// PRINT_VEC(cur->bb.mn);
+		// PRINT_VEC(cur->bb.mx);
 		arr_bvh[arr_idx * 10 + 2] = cur->bb.mn[0];
 		arr_bvh[arr_idx * 10 + 3] = cur->bb.mn[1];
 		arr_bvh[arr_idx * 10 + 4] = cur->bb.mn[2];
@@ -547,13 +574,13 @@ public:
 	}
 
 	__device__ bool intersect_all(const Ray& r, Vector &P, Vector &N, int &objectId) {
-		double t_min = INF;
+	 float t_min = INF;
 		int id_min = -1;
 		Vector N_min;
         for (int i = 0; i < objects_size; i++) {
             Geometry* object_ptr = objects[i];
-			double t;
-			double id = object_ptr->id;
+		 float t;
+		 float id = object_ptr->id;
 			Vector N_tmp;
 			bool ok = object_ptr->intersect(r, t, N_tmp);
 			if (ok && t < t_min) {
@@ -582,7 +609,7 @@ public:
 				if (objects[sphere_id]->mirror) {
 					// Reflection
 					types[ray_depth] = 0;
-					double epsilon = 1e-6;
+				 float epsilon = 1e-6;
 					Vector P_adjusted = P + epsilon * N;
 					Vector new_direction = ray.u - 2 * dot(ray.u, N) * N;
 					Ray reflected_ray(P_adjusted, new_direction, ray.refraction_index);
@@ -590,8 +617,8 @@ public:
 				} else if (objects[sphere_id]->in_refraction_index != objects[sphere_id]->out_refraction_index) {
 					// Refraction
 					types[ray_depth] = 0;
-					double epsilon = 1e-6;
-					double refract_ratio;
+				 float epsilon = 1e-6;
+				 float refract_ratio;
 					bool out2in = ray.refraction_index == objects[sphere_id]->out_refraction_index;
 					if (out2in) { 
 						// outside to inside
@@ -622,7 +649,7 @@ public:
 					// 	Get shadow
 					Vector P_prime;
 					int sphere_id_shadow;
-					double epsilon = 1e-6;
+				 	float epsilon = 1e-6;
 					Vector P_adjusted = P + epsilon * N;
 					Vector N_prime;
 					bool _ = intersect_all(Ray(P_adjusted, NORMED_VEC(L - P_adjusted)), P_prime, N_prime, sphere_id_shadow);
@@ -635,16 +662,17 @@ public:
 						Geometry* S = objects[sphere_id];
 						Vector wlight = L - P;
 						wlight.normalize();
-						double l = intensity / (4 * PI * (L - P).norm2()) * max(dot(N, wlight), 0.);
+					 float l = intensity / (4 * PI * (L - P).norm2()) * max(dot(N, wlight), 0.);
 						direct_colors[ray_depth] = l * S->albedo / PI;
 					}
+					// printf("%f %f\n", (P_prime - P_adjusted).norm2(), (L - P_adjusted).norm2());
 					// Get indirect color by launching ray
 					unsigned int seed = threadIdx.x;
-					double r1 = uniform(rand_states, seed);
-					double r2 = uniform(rand_states, seed);
-					double x = cos(2 * PI * r1) * sqrt(1 - r2);
-					double y = sin(2 * PI * r1) * sqrt(1 - r2);
-					double z = sqrt(r2);
+					float r1 = uniform(rand_states, seed);
+					float r2 = uniform(rand_states, seed);
+					float x = cos(2 * PI * r1) * sqrt(1 - r2);
+					float y = sin(2 * PI * r1) * sqrt(1 - r2);
+					float z = sqrt(r2);
 					Vector T1;
 					if (abs(N[1]) != 0 && abs(N[0]) != 0) {
 						T1 = Vector(-N[1], N[0], 0);
@@ -657,6 +685,9 @@ public:
 					ray = Ray(P_adjusted, random_direction);
 					indirect_albedos[ray_depth] = ((Geometry *)objects[sphere_id])->albedo;
 					types[ray_depth] = 1;
+
+					// printf("DIFF INTER\n");
+
 				}
 			}
 		}
@@ -667,12 +698,13 @@ public:
 				ans_color = indirect_albedos[i] * ans_color + direct_colors[i];
 			}
 		}
+		
 		return ans_color;
 	}
 
 	Geometry* objects[10];
     int objects_size = 0;
-	double intensity = 3e10;
+ float intensity = 3e10;
 	Vector L;
 	curandState* rand_states;
 };
@@ -684,18 +716,18 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		s->objects_size = 0;
 		s->intensity = 3e10;
 		// s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
-		s->addObject(new Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.))); // green fore wall
-		s->addObject(new Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.))); // blue floor
-		s->addObject(new Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.))); // red ceiling
-		s->addObject(new Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.))); // cyan left wall
-		s->addObject(new Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.))); // yellow right wall
-		s->addObject(new Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.))); // magenta back wall
+		s->addObject(new Sphere(Vector(0, 0, -1000), 940.0f, Vector(0.0f, 1.0f, 0.0f))); // green fore wall
+		s->addObject(new Sphere(Vector(0, -1000, 0), 990.0f, Vector(0.0f, 0.0f, 1.0f))); // blue floor
+		s->addObject(new Sphere(Vector(0, 1000, 0), 940.0f, Vector(1.0f, 0.0f, 0.0f))); // red ceiling
+		s->addObject(new Sphere(Vector(-1000, 0, 0), 940.0f, Vector(0.0f, 1.0f, 1.0f))); // cyan left wall
+		s->addObject(new Sphere(Vector(1000, 0, 0), 940.0f, Vector(1.0f, 1.0f, 0.0f))); // yellow right wall
+		s->addObject(new Sphere(Vector(0, 0, 1000), 940.0f, Vector(1.0f, 0.0f, 1.0f))); // magenta back wall
 		// s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
 		// s->addObject(new Sphere(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5)); // inner nested ssphere
 		// s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
 
 		TriangleMesh* cat = new TriangleMesh();
-		cat->albedo = Vector(0.25, 0.25, 0.25);
+		cat->albedo = Vector(0.25f, 0.25f, 0.25f);
 	 	cat->indices_size = indices_size;
 		cat->indices = indices;
 		cat->vertices_size = vertices_size;
@@ -709,18 +741,19 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		// cat->vertexcolors;
 		// cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
 		// cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
-		// cat->bvh = bvh;
-		// s->addObject(cat);
+		cat->bvh = bvh;
+
+		s->addObject(cat);
 		s->rand_states = new curandState[blockDim.x];
 	}
 	__syncthreads();
   	curand_init(123456, id, 0, s->rand_states + id);
 }
 
-__global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
-	extern __shared__ double shared_memory[];
+__global__ void KernelLaunch(Scene *s, float *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
+	extern __shared__ float shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-	double *shared_colors = shared_memory;
+ float *shared_colors = shared_memory;
 	Sphere *shared_objects = (Sphere *)&shared_colors[blockDim.x * 3];
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
@@ -729,23 +762,24 @@ __global__ void KernelLaunch(Scene *s, double *colors, int W, int H, int num_ray
 	// curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
     int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	Vector C(0, 0, 55);
-	double alpha = PI/3;
-	double z = -W / (2 * tan(alpha/2));
+	float alpha = PI/3;
+	float z = -W / (2 * tan(alpha/2));
     unsigned int seed = threadIdx.x;
-    Vector u_center((double)j - (double)W / 2 + 0.5, (double)H / 2 - i - 0.5, z);
+    Vector u_center((float)j -  (float)W / 2 + 0.5,  (float)H / 2 - i - 0.5, z);
 	// Box-muller for anti-aliasing
-	double sigma = 0.2;
-	double r1 = uniform(s->rand_states, seed);
-	double r2 = uniform(s->rand_states, seed);
+
+	float sigma = 0.2;
+	float r1 = uniform(s->rand_states, seed);
+	float r2 = uniform(s->rand_states, seed);
 	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
 	u.normalize();
 	Ray r(C, u);
 	Vector color = s->getColorIterative(r, num_bounce);
+	// PRINT_VEC(color);
 	shared_colors[threadIdx.x * 3 + 0] = color[0];
     shared_colors[threadIdx.x * 3 + 1] = color[1];
     shared_colors[threadIdx.x * 3 + 2] = color[2];
 	__syncthreads();
-	// color.print();
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_colors[blockDim.x * 2 + threadIdx.x];
@@ -765,14 +799,14 @@ int main(int argc, char **argv) {
 	const int num_rays = atoi(argv[1]), num_bounce = atoi(argv[2]);
 	int W = 512;
 	int H = 512;
-	int colors_size = sizeof(double) * H * W * 3 * num_rays;
+	int colors_size = sizeof(float) * H * W * 3 * num_rays;
 	const int BLOCK_DIM = 128;
 	int GRID_DIM = W * H * num_rays / BLOCK_DIM;
 	
 	Scene *d_s;
-	double *h_colors, *d_colors;
+	float *h_colors, *d_colors;
     char *image;
-	h_colors = new double[H * W * 3 * num_rays];
+	h_colors = new float[H * W * 3 * num_rays];
     image = new char[H * W * 3];
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
@@ -787,10 +821,15 @@ int main(int argc, char **argv) {
 	TriangleMeshHost* mesh_ptr = new TriangleMeshHost(); // cat
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
+	mesh_ptr->rescale(0.8f, Vector(0.f, -2.f, 0.f));
+	// printf("%d %d\n", mesh_ptr->vertices.size(), mesh_ptr->indices.size());
 	
 	/*
 		Build, convert, and transfer BVH tree to GPU texture memory
 	*/
+	// for(int i = 0; i < 10; i++){
+	// 	PRINT_VEC(mesh_ptr->vertices[i]);
+	// }
 	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
 	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
 	float *arr_bvh = (float *)malloc(sizeof(float) * mesh_ptr->n_bvhs * 10);
@@ -833,7 +872,7 @@ int main(int argc, char **argv) {
     KernelLaunch<<<
 		GRID_DIM,
 		BLOCK_DIM,
-		sizeof(double) * BLOCK_DIM * 3
+		sizeof (float) * BLOCK_DIM * 3
 		+ sizeof(Geometry) * 10
 		+ sizeof(TriangleMesh)
 		+ sizeof(curandState) * BLOCK_DIM
