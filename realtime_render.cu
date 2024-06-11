@@ -26,8 +26,8 @@
 #define INF (1e9+9)
 #define MAX_RAY_DEPTH 10
 
-int W = 256;
-int H = 256;
+int W = 512;
+int H = 512;
 // #define float float
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -295,7 +295,7 @@ public:
 					Vector N_triangle;
 					bool inter = moller_trumbore(A, B, C, N_triangle, r, t_cur);
 					if (!inter) continue;
-					if (t_cur > 1e-4f && t_cur < t_min) {
+					if (t_cur > 1e-3f && t_cur < t_min) {
 						t_min = t_cur;
 						N = N_triangle;
 						idx_min = i;
@@ -801,6 +801,67 @@ void readOBJ(const char *obj)
 
 };
 
+
+class Camera {
+public:
+	__device__ __host__ Camera(){
+		C = Vector(0., 0., 55.);
+		yaw = 0.;
+		pitch = 0.3;
+		rotate();
+	}
+	__device__ __host__ void changeYaw (float d){
+		yaw += d;
+		rotate();
+
+	}
+
+	__device__ __host__ void changePitch (float d){
+		pitch += d;
+		rotate();
+	}
+
+
+    __device__ __host__ void rotate() {
+        // Reset camera orientation to initial state
+        bx = Vector(1, 0, 0);
+        by = Vector(0, 1, 0);
+        bz = Vector(0, 0, -1);
+
+        // Rotate around the up vector (by) for yaw
+        float cos_yaw = cos(yaw);
+        float sin_yaw = sin(yaw);
+        bx = bx * cos_yaw + bz * sin_yaw;
+        bz = cross(by, bx); // Ensure orthogonality
+
+        // Rotate around the right vector (bx) for pitch
+        float cos_pitch = cos(pitch);
+        float sin_pitch = sin(pitch);
+        by = by * cos_pitch - bz * sin_pitch;
+        bz = cross(bx, by); // Ensure orthogonality
+
+        // Normalize the vectors to maintain unit length
+        bx.normalize();
+        by.normalize();
+        bz.normalize();
+    }
+	
+
+	void move(Vector d){
+		C = C + d;
+	}
+	Vector C;
+	float yaw;
+	float pitch;
+	Vector bx; 
+	Vector by; // Up direction
+	Vector bz; // Camera looking straight ahead initially
+	// Vector camera_pos(0, 0, 0); // Camera position
+
+};
+
+
+
 class Scene {
 public:
 	__device__ void addObject(Geometry* s) {
@@ -844,7 +905,7 @@ public:
 				if (objects[sphere_id]->mirror) {
 					// Reflection
 					types[ray_depth] = 0;
-				 float epsilon = 1e-4;
+				 float epsilon = 1e-3;
 					Vector P_adjusted = P + epsilon * N;
 					Vector new_direction = ray.u - 2 * dot(ray.u, N) * N;
 					Ray reflected_ray(P_adjusted, new_direction, ray.refraction_index);
@@ -852,7 +913,7 @@ public:
 				} else if (objects[sphere_id]->in_refraction_index != objects[sphere_id]->out_refraction_index) {
 					// Refraction
 					types[ray_depth] = 0;
-				 float epsilon = 1e-4;
+				 float epsilon = 1e-3;
 				 float refract_ratio;
 					bool out2in = ray.refraction_index == objects[sphere_id]->out_refraction_index;
 					if (out2in) { 
@@ -884,7 +945,7 @@ public:
 					// 	Get shadow
 					Vector P_prime;
 					int sphere_id_shadow;
-				 	float epsilon = 1e-4;
+				 	float epsilon = 1e-3;
 					Vector P_adjusted = P + epsilon * N;
 					Vector N_prime;
 					bool _ = intersect_all(Ray(P_adjusted, NORMED_VEC(L - P_adjusted)), P_prime, N_prime, sphere_id_shadow);
@@ -900,7 +961,8 @@ public:
 					 float l = intensity / (4 * PI * (L - P).norm2()) * max(dot(N, wlight), 0.f);
 						direct_colors[ray_depth] = l * S->albedo / PI;
 					}
-					// printf("%f %f\n", (P_prime - P_adjusted).norm2(), (L - P_adjusted).norm2());
+
+					types[ray_depth] = 1;
 					// Get indirect color by launching ray
 					float r1 = curand_uniform(rand_state);
 					float r2 = curand_uniform(rand_state);
@@ -918,7 +980,6 @@ public:
 					Vector random_direction = x * T1 + y * T2 + z * N;
 					ray = Ray(P_adjusted, random_direction);
 					indirect_albedos[ray_depth] = ((Geometry *)objects[sphere_id])->albedo;
-					types[ray_depth] = 1;
 				}
 			}
 		}
@@ -927,35 +988,50 @@ public:
 			if (types[i]) {
 				// Hits a diffusion object
 				ans_color = indirect_albedos[i] * ans_color + direct_colors[i];
+				// PRINT_VEC(direct_colors[i]);
 			}
 		}
+
 		
 		return ans_color;
 	}
 
 	Geometry* objects[10];
     int objects_size = 0;
- 	float intensity = 3e10;
+ 	float intensity = 6e10;
 	Vector L;
+	float pov;
 	curandState* rand_states;
+	Camera cam;
 };
+
+float3* accumulatebuffer;
+float3 *dptr;
+Vector* d_vertices; 
+Vector* d_normals;
+TriangleIndices* d_indices;
+int frames;
+bool buffer_reset = false;
+Camera h_cam;
 
 __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size,Vector *normals, int normals_size) {
  	int threadId = threadIdx.x + blockIdx.x * blockDim.x;
 	if (!threadId) {
+		s->cam = Camera();
+		s->pov = PI / 2;
 		s->L = Vector(0., 15., 40.);
 		s->objects_size = 0;
 		s->intensity = 3e10;
-		s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
+		// s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
 		s->addObject(new Sphere(Vector(0, 0, -1000), 940.0f, Vector(0.0f, 1.0f, 0.0f))); // green fore wall
-		s->addObject(new Sphere(Vector(0, -1000, 0), 990.0f, Vector(0.0f, 0.0f, 1.0f))); // blue floor
+		s->addObject(new Sphere(Vector(0, -1000, 0), 940.0f, Vector(0.0f, 0.0f, 1.0f))); // blue floor
 		s->addObject(new Sphere(Vector(0, 1000, 0), 940.0f, Vector(1.0f, 0.0f, 0.0f))); // red ceiling
 		s->addObject(new Sphere(Vector(-1000, 0, 0), 940.0f, Vector(0.0f, 1.0f, 1.0f))); // cyan left wall
 		s->addObject(new Sphere(Vector(1000, 0, 0), 940.0f, Vector(1.0f, 1.0f, 0.0f))); // yellow right wall
 		s->addObject(new Sphere(Vector(0, 0, 1000), 940.0f, Vector(1.0f, 0.0f, 1.0f))); // magenta back wall
-		s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
+		// s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
 		// s->addObject(new Sphere(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5)); // inner nested ssphere
-		s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
+		// s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
 
 		TriangleMesh* cat = new TriangleMesh();
 		cat->albedo = Vector(0.25f, 0.25f, 0.25f);
@@ -969,9 +1045,9 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		// cat->uvs;
 		// cat->vertexcolors_size;
 		// cat->vertexcolors;
-		// cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
-		// cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
-		// s->addObject(cat);
+		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
+		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+		s->addObject(cat);
 	}
 }
 
@@ -986,23 +1062,28 @@ cudaGraphicsResource* cudaVBOResource;
 void *d_vbo_buffer = NULL;
 Scene *d_s;
 
+__device__ Vector rotate_vector(Vector v, Vector axis, float angle) {
+    float cos_theta = cos(angle);
+    float sin_theta = sin(angle);
+    return v * cos_theta + cross(axis, v) * sin_theta + axis * dot(axis, v) * (1 - cos_theta);
+}
+
 /// ADDITIONAL FUNCTIONS TO MOVE LIGHT SOURCE AND OBJECT IN REALTIME RENDERING
 __global__ void MoveLightSource(Scene *d_s, float angularSpeed, float dt=2e-2f, int index = 0) {
-    int threadId = (blockIdx.x + blockIdx.y * gridDim.x) * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+    int threadId =  blockIdx.x * blockDim.x + threadIdx.x;
 
     // Only one thread needs to execute this
     if (threadId == 0) {
 
-        Sphere *sph = (Sphere *)d_s->objects[index];
-		float radius = sqrtf(powf(sph->C[0] - d_s->L[0], 2) + powf(sph->C[2] - d_s->L[2], 2));
-		// printf("%f\n", radius);
+        Vector C(0, 0, 0);
+		float radius = sqrtf(powf(C[0] - d_s->L[0], 2) + powf(C[2] - d_s->L[2], 2));
 
-        float currentAngle = atan2f(d_s->L[2] - sph->C[2], d_s->L[0] - sph->C[0]);
+        float currentAngle = atan2f(d_s->L[2] - C[2], d_s->L[0] - C[0]);
         float newAngle = currentAngle + angularSpeed * dt;
 
-        float newX = sph->C[0] + radius * cosf(newAngle);
+        float newX = C[0] + radius * cosf(newAngle);
         float newY = d_s->L[1];
-        float newZ = sph->C[2] + radius * sinf(newAngle);
+        float newZ = C[2] + radius * sinf(newAngle);
 
         d_s->L = Vector(newX, newY, newZ);
     }
@@ -1028,13 +1109,15 @@ __global__ void KernelLaunch(Scene *s, float3 *output, float3 *accumbuffer, int 
 	int i = y * W + x; // pixel index in buffer
 
 	outcolor = Vector(0.f, 0.f, 0.f);
-	
-	// printf("%d %d\n", x, y);
-	Vector C(0, 0, 55);
-	float alpha = PI/3;
-	float z = -W / (2 * tan(alpha/2));
+	float z = -W / (2 * tan(s->pov/2));
 
-    Vector u_center(x -  (float)W / 2 + 0.5,  (float)H / 2 - y - 0.5, z);
+
+    Vector u_center = s->cam.C + s->cam.bz * z + s->cam.bx * (x - (float)W / 2 + 0.5) + s->cam.by * ((float)H / 2 - y - 0.5);
+
+	// Vector u_center(xDirection + z, yDirection, zDirection);
+	// u_center.normalize();
+	// Vector C(0, 0, 55);
+	// float alpha = PI/3;
 	// Box-muller for anti-aliasing
 
 	float sigma = 0.2;
@@ -1043,19 +1126,22 @@ __global__ void KernelLaunch(Scene *s, float3 *output, float3 *accumbuffer, int 
 		float r2 = curand_uniform(&rand_state);
 		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
 		u.normalize();
-		Ray r(C, u);
+		Ray r(s->cam.C, u);
 		Vector color = s->getColorIterative(&rand_state, r, num_bounce);
-		outcolor = outcolor + color * (1. / num_rays);
+		outcolor = outcolor + color * (1./num_rays);
 	}
+	
+	// }
 	// PRINT_VEC(color);
 	accumbuffer[i].x += outcolor[0];
 	accumbuffer[i].y += outcolor[1];
 	accumbuffer[i].z += outcolor[2];
 	float3 tempcol = accumbuffer[i] / framenumber;
+	// float3 tempcol;
 
-	tempcol.x = outcolor[0];
-	tempcol.y = outcolor[1];
-	tempcol.z = outcolor[2];
+	// tempcol.x = outcolor[0];
+	// tempcol.y = outcolor[1];
+	// tempcol.z = outcolor[2];
 
 	Colour fcolour;
 	fcolour.components = make_uchar4((unsigned char)(min(powf(tempcol.x, 1 / 2.2f), 255.)), (unsigned char)(min(powf(tempcol.y, 1 / 2.2f), 255.)), (unsigned char)(min(powf(tempcol.z, 1 / 2.2f), 255.)), 1);
@@ -1123,19 +1209,51 @@ void createVBO(GLuint* vbo)
 	gpuErrchk(cudaGLRegisterBufferObject(*vbo));
 }
 
-float3* accumulatebuffer;
-float3 *dptr;
-Vector* d_vertices;
-Vector* d_normals;
-TriangleIndices* d_indices;
-int frames;
+
+
+void specialkeys(int key, int, int){
+
+	switch (key) {
+
+	case GLUT_KEY_LEFT: h_cam.changeYaw(0.02f); buffer_reset = true; break; 
+	case GLUT_KEY_RIGHT: h_cam.changeYaw(-0.02f); buffer_reset = true; break;
+	case GLUT_KEY_UP: h_cam.changePitch(0.02f); buffer_reset = true; break;
+	case GLUT_KEY_DOWN: h_cam.changePitch(-0.02f); buffer_reset = true; break;
+
+	}
+}
+
+
+void keyboard(unsigned char key, int /*x*/, int /*y*/)
+{
+	switch (key) {
+	
+	case(27) : exit(0);
+	// case(' ') : initCamera(); buffer_reset = true; break;
+	case('a') : h_cam.move(Vector(-2, 0, 0)); buffer_reset = true; break;
+	case('d') : h_cam.move(Vector(2, 0, 0)); buffer_reset = true; break;
+	case('r') : h_cam.move(Vector(0, 2, 0)) ; buffer_reset = true; break;
+	case('f') : h_cam.move(Vector(0, -2, 0)) ;  buffer_reset = true; break;
+	case('w') : h_cam.move(Vector(0, 0, -2)); buffer_reset = true; break;
+	case('s') : h_cam.move(Vector(0, 0, 2));  buffer_reset = true; break;
+	}
+}
+
 
 /// Custom function from reference
 void disp(void)
 {
+	if (buffer_reset){ 
+		cudaMemset(accumulatebuffer, 1, W * H * sizeof(float3));
+		frames = 0; 
+		cudaMemcpy(&d_s->cam, &h_cam, sizeof(Camera), cudaMemcpyHostToDevice);
+		buffer_reset = false;
+	}
+
 	frames++;
 	// printf("frames %d\n", frames);
 	cudaThreadSynchronize();
+	auto start_time = std::chrono::system_clock::now();
 
 	// map vertex buffer object for acces by CUDA 
 	gpuErrchk(cudaGLMapBufferObject((void**)&dptr, vbo));
@@ -1149,8 +1267,6 @@ void disp(void)
 	dim3 block(16, 16, 1);
     dim3 grid(W / block.x, H / block.y, 1);
 
-	MoveLightSource<<<1, 1>>>(d_s, 5, 4e-2);
-
 	gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
 
@@ -1159,6 +1275,11 @@ void disp(void)
     gpuErrchk(cudaDeviceSynchronize());
 
 	cudaThreadSynchronize();
+	auto end_time = std::chrono::system_clock::now();
+	std::chrono::duration<double> run_time = end_time - start_time;
+	if (frames % 5 == 0){
+    	std::cout << "Rendering time: " << run_time.count() << " s\n";
+	}
 
 	// unmap buffer
 	gpuErrchk(cudaGLUnmapBufferObject(vbo));
@@ -1196,6 +1317,7 @@ int main(int argc, char **argv) {
         -sin(angle), 0., cos(angle),
     };
 	
+	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
 
     gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
 
@@ -1211,9 +1333,11 @@ int main(int argc, char **argv) {
 	float *d_rotation_matrix;
 	cudaMalloc(&d_rotation_matrix, 9 * sizeof(float));
 	cudaMemcpy(d_rotation_matrix, rotation_matrix, 9 * sizeof(float), cudaMemcpyHostToDevice);
-
+	// cudaMemcpy()
+	// cudaMemcpy(&h_cam, &d_s->cam, sizeof(Camera), cudaMemcpyDeviceToHost);
 
 	KernelInit<<<1, 1>>>(d_s, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), d_normals, mesh_ptr->normals.size());
+
 
 	/// DISPLAY WITH OPEN GL INTEROPERATION (Reference http://raytracey.blogspot.com/2015/12/gpu-path-tracing-tutorial-2-interactive.html)
 	glutInit(&argc, argv);
@@ -1232,6 +1356,8 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "OpenGL initialized \n");
 	// register callback function to display graphics:
 	glutDisplayFunc(disp);
+	glutKeyboardFunc(keyboard);
+	glutSpecialFunc(specialkeys);
 	glewInit();
 	if (!glewIsSupported("GL_VERSION_2_0 ")) {
 		fprintf(stderr, "ERROR: Support for necessary OpenGL extensions missing.");

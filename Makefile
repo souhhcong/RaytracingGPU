@@ -2,10 +2,10 @@ NVCC = /usr/local/cuda/bin/nvcc
 
 LDLIBS = -lglut -lGL -lGLU -lm -lGLEW
 
-all: global shared realtime array_bvh
+all: global shared realtime array_bvh cpu
 
 realtime:
-	$(NVCC) realtime_render.cu -o realtime -g -G -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include $(LDLIBS)
+	$(NVCC) realtime_render.cu -o realtime -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include $(LDLIBS)
 
 global:
 	$(NVCC) global_launcher.cu -o global -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
