@@ -9,4 +9,7 @@
 *.png
 raytracer
 profile.*
-*.out
+array_bvh
+shared
+global
+realtime

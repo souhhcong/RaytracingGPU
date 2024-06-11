@@ -292,8 +292,6 @@ public:
 					if (t_cur > 1e-4f && t_cur < t_min) {
 						t_min = t_cur;
 						N = N_triangle;
-						//
-						// PRINT_VEC(N);
 					}
 				} 
 			}
@@ -1119,7 +1117,7 @@ int main(int argc, char **argv) {
 		}
 	}
 	delete h_colors;
-	stbi_write_png("./shared_output/image.png", W, H, 3, &image[0], 0);
+	stbi_write_png("./shared_output/array_bvh.png", W, H, 3, &image[0], 0);
     delete image;
 
 	/*

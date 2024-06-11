@@ -1,12 +1,20 @@
 NVCC = /usr/local/cuda/bin/nvcc
 
-all: global shared
+LDLIBS = -lglut -lGL -lGLU -lm -lGLEW
+
+all: global shared realtime array_bvh
+
+realtime:
+	$(NVCC) realtime_render.cu -o realtime -g -G -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include $(LDLIBS)
 
 global:
 	$(NVCC) global_launcher.cu -o global -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
 
+array_bvh:
+	$(NVCC) array_bvh.cu -o array_bvh -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+
 shared:
-	$(NVCC) shared_launcher.cu -o shared -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) share_mem.cu -o shared -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
 
 clean:
-	rm -f *.out
+	rm -f *.out realtime global shared array_bvh

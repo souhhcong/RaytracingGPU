@@ -5,6 +5,11 @@
 #include <iostream>
 #include <chrono>
 #include <curand_kernel.h>
+#include "cutil_math.h"  // required for float3 vector math
+#include "/usr/include/GL/glew.h"
+#include "/usr/include/GL/glut.h"
+#include "cuda_runtime.h"
+#include "cuda_gl_interop.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -20,6 +25,9 @@
 #define PRINT_VEC(v) (printf("%s: (%f %f %f)\n", #v, (v)[0], (v)[1], (v)[2]))
 #define INF (1e9+9)
 #define MAX_RAY_DEPTH 10
+
+int W = 256;
+int H = 256;
 // #define float float
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -49,7 +57,7 @@ public:
 		return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
 	}
 	__device__ __host__ float norm() const {
-		return sqrtf(norm2());
+		return sqrt(norm2());
 	}
 	__device__ __host__ void normalize() {
 		float n = norm();
@@ -108,8 +116,8 @@ public:
 	Vector albedo;
 	int id;
 	bool mirror;
- float in_refraction_index;
- float out_refraction_index;
+	float in_refraction_index;
+	float out_refraction_index;
 	__device__ virtual bool intersect(const Ray& r, float &t, Vector &N) { return 0; };
 };
 
@@ -119,13 +127,13 @@ public:
 	__device__ Sphere(const Vector &C, float R, const Vector& albedo, bool mirror = 0, float in_refraction_index = 1., float out_refraction_index = 1.) : 
 	C(C), R(R), Geometry(albedo, id, mirror, in_refraction_index, out_refraction_index) {};
     Vector C;
- float R;
+	float R;
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
 	 float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
 		if (delta < 0)
 			return 0;
-	 float t1 = dot(r.u, C - r.O) - sqrtf(delta); // first intersection
-	 float t2 = dot(r.u, C - r.O) + sqrtf(delta); // second intersection
+	 float t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
+	 float t2 = dot(r.u, C - r.O) + sqrt(delta); // second intersection
 		if (t2 < 0)
 			return 0;
 		t = t1 < 0 ? t2 : t1;
@@ -212,7 +220,7 @@ public:
 
 	__device__ void get_smooth_normal(Ray r, TriangleIndices tid, Vector &N){
 		Vector A, B, C;
-		float alpha, t;
+		float alpha;
 
 		A = vertices[tid.vtxi];
 		B = vertices[tid.vtxj];
@@ -223,7 +231,7 @@ public:
 		N = cross(e1, e2);
 		float beta = dot(e2, cross(A - r.O, r.u)) / dot(r.u, N);
 		float gamma = - dot(e1, cross(A - r.O, r.u)) / dot(r.u, N);
-		t = dot(A - r.O, N) / dot(r.u, N);
+		// t = dot(A - r.O, N) / dot(r.u, N);
 	
 		alpha = 1 - beta - gamma;
 		Vector Na, Nb, Nc;
@@ -250,23 +258,6 @@ public:
 	
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
 	 float t_tmp;
-
-		// #define BUILD_BVH(var, idx) var.left = bvh[(idx) * 10 + 0],\
-		// 							var.right = bvh[(idx) * 10 + 1],\
-		// 							var.bb = BoundingBox(\
-		// 								Vector(\
-		// 									bvh[(idx) * 10 + 2],\
-		// 									bvh[(idx) * 10 + 3],\
-		// 									bvh[(idx) * 10 + 4]\
-		// 								),\
-		// 								Vector(\
-		// 									bvh[(idx) * 10 + 5],\
-		// 									bvh[(idx) * 10 + 6],\
-		// 									bvh[(idx) * 10 + 7]\
-		// 								)\
-		// 							),\
-		// 							var.triangle_start = bvh[(idx) * 10 + 8],\
-		// 							var.triangle_end = bvh[(idx) * 10 + 9]
 		// PRINT_VEC(tmp);
 		BVH root_bvh = bvh;
 		// BUILD_BVH(root_bvh, 0);
@@ -317,7 +308,7 @@ public:
 		N.normalize();
 		if(idx_min > -1)
 			// PRINT_VEC(N);
-			// get_smooth_normal(r, indices[idx_min], N);
+			get_smooth_normal(r, indices[idx_min], N);
 			// printf("new N ");
 			// PRINT_VEC(N);
 		t = t_min;
@@ -453,8 +444,6 @@ public:
 	
 void readOBJ(const char *obj)
 {
-
-    char matfile[255];
     char grp[255];
 
     FILE *f;
@@ -825,8 +814,8 @@ public:
 		Vector N_min;
         for (int i = 0; i < objects_size; i++) {
             Geometry* object_ptr = objects[i];
-		 float t;
-		 float id = object_ptr->id;
+		float t;
+		float id = object_ptr->id;
 			Vector N_tmp;
 			bool ok = object_ptr->intersect(r, t, N_tmp);
 			if (ok && t < t_min) {
@@ -882,7 +871,7 @@ public:
 						continue;
 					}
 					Vector P_adjusted = P - epsilon * N;
-					Vector N_component = - sqrtf(1 - SQR(refract_ratio) * (1 - SQR(dot(ray.u, N)))) * N;
+					Vector N_component = - sqrt(1 - SQR(refract_ratio) * (1 - SQR(dot(ray.u, N)))) * N;
 					Vector T_component = refract_ratio * (ray.u - dot(ray.u, N) * N);
 					Vector new_direction = N_component + T_component;
 					if (out2in) {
@@ -913,12 +902,11 @@ public:
 					}
 					// printf("%f %f\n", (P_prime - P_adjusted).norm2(), (L - P_adjusted).norm2());
 					// Get indirect color by launching ray
-					unsigned int seed = threadIdx.x;
 					float r1 = curand_uniform(rand_state);
 					float r2 = curand_uniform(rand_state);
-					float x = cosf(2 * PI * r1) * sqrtf(1 - r2);
-					float y = sinf(2 * PI * r1) * sqrtf(1 - r2);
-					float z = sqrtf(r2);
+					float x = cos(2 * PI * r1) * sqrt(1 - r2);
+					float y = sin(2 * PI * r1) * sqrt(1 - r2);
+					float z = sqrt(r2);
 					Vector T1;
 					if (abs(N[1]) != 0.f && abs(N[0]) != 0.f) {
 						T1 = Vector(-N[1], N[0], 0);
@@ -931,9 +919,6 @@ public:
 					ray = Ray(P_adjusted, random_direction);
 					indirect_albedos[ray_depth] = ((Geometry *)objects[sphere_id])->albedo;
 					types[ray_depth] = 1;
-
-					// printf("DIFF INTER\n");
-
 				}
 			}
 		}
@@ -958,19 +943,19 @@ public:
 __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size,Vector *normals, int normals_size) {
  	int threadId = threadIdx.x + blockIdx.x * blockDim.x;
 	if (!threadId) {
-		s->L = Vector(-10., 20., 40.);
+		s->L = Vector(0., 15., 40.);
 		s->objects_size = 0;
 		s->intensity = 3e10;
-		// s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
+		s->addObject(new Sphere(Vector(0, 0, 0), 10, Vector(1., 1., 1.))); // white sphere
 		s->addObject(new Sphere(Vector(0, 0, -1000), 940.0f, Vector(0.0f, 1.0f, 0.0f))); // green fore wall
 		s->addObject(new Sphere(Vector(0, -1000, 0), 990.0f, Vector(0.0f, 0.0f, 1.0f))); // blue floor
 		s->addObject(new Sphere(Vector(0, 1000, 0), 940.0f, Vector(1.0f, 0.0f, 0.0f))); // red ceiling
 		s->addObject(new Sphere(Vector(-1000, 0, 0), 940.0f, Vector(0.0f, 1.0f, 1.0f))); // cyan left wall
 		s->addObject(new Sphere(Vector(1000, 0, 0), 940.0f, Vector(1.0f, 1.0f, 0.0f))); // yellow right wall
 		s->addObject(new Sphere(Vector(0, 0, 1000), 940.0f, Vector(1.0f, 0.0f, 1.0f))); // magenta back wall
-		// s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
+		s->addObject(new Sphere(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1)); // mirror sphere
 		// s->addObject(new Sphere(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5)); // inner nested ssphere
-		// s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
+		s->addObject(new Sphere(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1)); // outer nested sphere
 
 		TriangleMesh* cat = new TriangleMesh();
 		cat->albedo = Vector(0.25f, 0.25f, 0.25f);
@@ -978,39 +963,71 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		cat->indices = indices;
 		cat->vertices_size = vertices_size;
 		cat->vertices = vertices;
-		// printf("%d %d\n", indices_size, vertices_size);
 		cat->normals_size = normals_size;
 		cat->normals = normals;
-		// for(int i = 0; i < 10; i++){
-		// 	PRINT_VEC(cat->normals[i]);
-		// }
 		// cat->uvs_size;
 		// cat->uvs;
 		// cat->vertexcolors_size;
 		// cat->vertexcolors;
-		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
-		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
-		s->addObject(cat);
+		// cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
+		// cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+		// s->addObject(cat);
 	}
 }
 
-__global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_rays, int num_bounce) {
+union Colour  // 4 bytes = 4 chars = 1 float
+{
+	float c;
+	uchar4 components;
+};
+
+GLuint vbo;
+cudaGraphicsResource* cudaVBOResource;
+void *d_vbo_buffer = NULL;
+Scene *d_s;
+
+/// ADDITIONAL FUNCTIONS TO MOVE LIGHT SOURCE AND OBJECT IN REALTIME RENDERING
+__global__ void MoveLightSource(Scene *d_s, float angularSpeed, float dt=2e-2f, int index = 0) {
+    int threadId = (blockIdx.x + blockIdx.y * gridDim.x) * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+
+    // Only one thread needs to execute this
+    if (threadId == 0) {
+
+        Sphere *sph = (Sphere *)d_s->objects[index];
+		float radius = sqrtf(powf(sph->C[0] - d_s->L[0], 2) + powf(sph->C[2] - d_s->L[2], 2));
+		// printf("%f\n", radius);
+
+        float currentAngle = atan2f(d_s->L[2] - sph->C[2], d_s->L[0] - sph->C[0]);
+        float newAngle = currentAngle + angularSpeed * dt;
+
+        float newX = sph->C[0] + radius * cosf(newAngle);
+        float newY = d_s->L[1];
+        float newZ = sph->C[2] + radius * sinf(newAngle);
+
+        d_s->L = Vector(newX, newY, newZ);
+    }
+}
+
+__global__ void MoveObject(Scene *d_s, int index, Vector v, float dt = 0.2){
+	int threadId = (blockIdx.x + blockIdx.y * gridDim.x) * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+	if(!threadId){
+		Sphere *sp = (Sphere*)d_s->objects[index];
+		sp->C = sp->C + v * dt;
+	}
+}
+
+__global__ void KernelLaunch(Scene *s, float3 *output, float3 *accumbuffer, int framenumber, uint hashedframenumber, int W, int H, int num_rays, int num_bounce) {
     // size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	unsigned int x = blockIdx.x*blockDim.x + threadIdx.x;
 	unsigned int y = blockIdx.y*blockDim.y + threadIdx.y;
 	int threadId = (blockIdx.x + blockIdx.y * gridDim.x) * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
 	curandState rand_state; // state of the random number generator, to prevent repetition
-	curand_init(threadId, 0, 0, &rand_state);
+	curand_init(hashedframenumber + threadId, 0, 0, &rand_state);
 
 	Vector outcolor;
-	int i = y*W + x; // pixel index in buffer
-	// float coordx = (float) x / W; // pixel x-coordinate on screen
-	// int coordy = (float) y / H;
+	int i = y * W + x; // pixel index in buffer
 
 	outcolor = Vector(0.f, 0.f, 0.f);
-	
-	// curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
-    // int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	
 	// printf("%d %d\n", x, y);
 	Vector C(0, 0, 55);
@@ -1024,29 +1041,28 @@ __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_ray
 	for(int i = 0; i < num_rays; i++){
 		float r1 = curand_uniform(&rand_state);
 		float r2 = curand_uniform(&rand_state);
-		Vector u = u_center + Vector(sigma * sqrtf(-2 * log(r1)) * cosf(2 * PI * r2), sigma * sqrtf(-2 * log(r1)) * sinf(2 * PI * r2), 0);
+		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
 		u.normalize();
 		Ray r(C, u);
 		Vector color = s->getColorIterative(&rand_state, r, num_bounce);
-		outcolor = outcolor + color;
+		outcolor = outcolor + color * (1. / num_rays);
 	}
 	// PRINT_VEC(color);
-	outcolor = outcolor / num_rays;
-	// PRINT_VEC(outcolor);
-	colors[i] = outcolor;	
+	accumbuffer[i].x += outcolor[0];
+	accumbuffer[i].y += outcolor[1];
+	accumbuffer[i].z += outcolor[2];
+	float3 tempcol = accumbuffer[i] / framenumber;
+
+	tempcol.x = outcolor[0];
+	tempcol.y = outcolor[1];
+	tempcol.z = outcolor[2];
+
+	Colour fcolour;
+	fcolour.components = make_uchar4((unsigned char)(min(powf(tempcol.x, 1 / 2.2f), 255.)), (unsigned char)(min(powf(tempcol.y, 1 / 2.2f), 255.)), (unsigned char)(min(powf(tempcol.z, 1 / 2.2f), 255.)), 1);
+	output[i] = make_float3(x, H-1-y, fcolour.c);
 }
 
-void allocateAndCopyDataToDevice(TriangleMeshHost* mesh_ptr, Vector*& d_vertices, Vector*& d_normals, TriangleIndices*& d_indices) {
-    gpuErrchk(cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)));
-    gpuErrchk(cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice));
-
-    gpuErrchk(cudaMalloc((void**)&d_normals, mesh_ptr->normals.size() * sizeof(Vector)));
-    gpuErrchk(cudaMemcpy(d_normals, &(mesh_ptr->normals[0]), mesh_ptr->normals.size() * sizeof(Vector), cudaMemcpyHostToDevice));
-
-    gpuErrchk(cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)));
-    gpuErrchk(cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice));
-}
-
+/// ADDITIONAL FUNCTION TO TRANSFORM MESH
 void transformMesh(Vector* d_vertices, int vertices_size, Vector* d_normals, int normals_size, const Vector& translation, const float* rotation_matrix) {
     float* d_rotation_matrix;
     gpuErrchk(cudaMalloc(&d_rotation_matrix, 9 * sizeof(float)));
@@ -1063,15 +1079,6 @@ void transformMesh(Vector* d_vertices, int vertices_size, Vector* d_normals, int
     cudaFree(d_rotation_matrix);
 }
 
-void renderScene(Scene* d_s, Vector* d_colors, int W, int H, int num_rays, int num_bounce) {
-    dim3 block(16, 16, 1);
-    dim3 grid(W / block.x, H / block.y, 1);
-
-    KernelLaunch<<<grid, block>>>(d_s, d_colors, W, H, num_rays, num_bounce);
-    gpuErrchk(cudaPeekAtLastError());
-    gpuErrchk(cudaDeviceSynchronize());
-}
-
 void saveImage(Vector* h_colors, int W, int H) {
     char* image = new char[W * H * 3];
     for (int i = 0; i < H; ++i) {
@@ -1081,48 +1088,97 @@ void saveImage(Vector* h_colors, int W, int H) {
             image[(i * W + j) * 3 + 2] = min(pow(h_colors[(i * W + j)][2], 1.0 / 2.2), 255.0);
         }
     }
-    stbi_write_png("./global_output/image.png", W, H, 3, image, 0);
+    stbi_write_png("image.png", W, H, 3, image, 0);
     delete[] image;
 }
 
+/* Referece: http://raytracey.blogspot.com/2015/12/gpu-path-tracing-tutorial-2-interactive.html */
+void Timer(int obsolete) {
+	glutPostRedisplay();
+	glutTimerFunc(30, Timer, 0);
+}
+
+/* Referece: http://raytracey.blogspot.com/2015/12/gpu-path-tracing-tutorial-2-interactive.html */
+uint WangHash(uint a) {
+	a = (a ^ 61) ^ (a >> 16);
+	a = a + (a << 3);
+	a = a ^ (a >> 4);
+	a = a * 0x27d4eb2d;
+	a = a ^ (a >> 15);
+	return a;
+}
+/* Referece: http://raytracey.blogspot.com/2015/12/gpu-path-tracing-tutorial-2-interactive.html */
+void createVBO(GLuint* vbo)
+{
+	//create vertex buffer object
+	glGenBuffers(1, vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, *vbo);
+	
+	//initialize VBO
+	unsigned int size = W * H * sizeof(float3);  // 3 floats
+	glBufferData(GL_ARRAY_BUFFER, size, 0, GL_DYNAMIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	
+	//register VBO with CUDA
+	gpuErrchk(cudaGLRegisterBufferObject(*vbo));
+}
+
+float3* accumulatebuffer;
+float3 *dptr;
+Vector* d_vertices;
+Vector* d_normals;
+TriangleIndices* d_indices;
+int frames;
+
+/// Custom function from reference
+void disp(void)
+{
+	frames++;
+	// printf("frames %d\n", frames);
+	cudaThreadSynchronize();
+
+	// map vertex buffer object for acces by CUDA 
+	gpuErrchk(cudaGLMapBufferObject((void**)&dptr, vbo));
+
+	//clear all pixels:
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	int num_rays = 20;
+	int num_bounce = 3;
+	
+	dim3 block(16, 16, 1);
+    dim3 grid(W / block.x, H / block.y, 1);
+
+	MoveLightSource<<<1, 1>>>(d_s, 5, 4e-2);
+
+	gpuErrchk(cudaPeekAtLastError());
+    gpuErrchk(cudaDeviceSynchronize());
+
+    KernelLaunch<<<grid, block>>>(d_s, dptr, accumulatebuffer, frames, WangHash(frames), W, H, num_rays, num_bounce);
+    gpuErrchk(cudaPeekAtLastError());
+    gpuErrchk(cudaDeviceSynchronize());
+
+	cudaThreadSynchronize();
+
+	// unmap buffer
+	gpuErrchk(cudaGLUnmapBufferObject(vbo));
+	//glFlush();
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glVertexPointer(2, GL_FLOAT, 12, 0);
+	glColorPointer(4, GL_UNSIGNED_BYTE, 12, (GLvoid*)8);
+
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_COLOR_ARRAY);
+	glDrawArrays(GL_POINTS, 0, W * H);
+	glDisableClientState(GL_VERTEX_ARRAY);
+
+	glutSwapBuffers();
+	//glutPostRedisplay();
+}
+
+
 int main(int argc, char **argv) {
-    if (argc != 3) {
-		std::cout << "Invalid number of arguments!\nThe first argument is number of rays and the second argument is number of bounces.\n";
-		return 0;
-	}
-
-	const int num_rays = atoi(argv[1]), num_bounce = atoi(argv[2]);
-	int W = 512;
-	int H = 512;
-	int colors_size = sizeof(float) * H * W * 3 * num_rays;
-	const int BLOCK_DIM = 128;
-	int GRID_DIM = W * H * num_rays / BLOCK_DIM;
-	float angle = -M_PI/3;
-
-    Vector translation = {0.f, 0.f, 0.f};
-    // float rotation_matrix[9] = {
-    //     cosf(angle), -sinf(angle), 0.,
-    //     sinf(angle), cosf(angle), 0.,
-    //     0., 0., 1.
-    // };
-	float rotation_matrix[9] = {
-        cosf(angle), 0, sinf(angle),
-       	0, 1, 0,
-        -sinf(angle), 0., cosf(angle),
-    };
-	
-	Scene *d_s;
-	Vector *h_colors, *d_colors;
-    char *image;
-	h_colors = new Vector[H * W];
-    image = new char[H * W * 3];
-
-	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
-	
-	// Malloc & transfer to GPU
-    gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
-    gpuErrchk( cudaMalloc((void**)&d_colors, H * W * sizeof(Vector)) );
-
+	cudaMalloc(&accumulatebuffer, W * H * sizeof(float3));
 	/*
 		Instantiate cat object
 	*/
@@ -1131,53 +1187,74 @@ int main(int argc, char **argv) {
 	mesh_ptr->readOBJ(path);
 	mesh_ptr->rescale(0.6f, Vector(0.f, -10.f, 0.f));
 
-	/*
-		Measure runtime
-	*/
-	auto start_time = std::chrono::system_clock::now();
+	float angle = -M_PI/3;
 
-	/*
-		Transfer remaining neccessary mesh information to GPU
-	*/
-	Vector* d_vertices;
-    Vector* d_normals;
-    TriangleIndices* d_indices;
+    Vector translation = {0.f, 0.f, 0.f};
+	float rotation_matrix[9] = {
+        cos(angle), 0, sin(angle),
+       	0, 1, 0,
+        -sin(angle), 0., cos(angle),
+    };
+	
 
-    allocateAndCopyDataToDevice(mesh_ptr, d_vertices, d_normals, d_indices);
+    gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
 
-	// float *d_rotation_matrix;
-	// cudaMalloc(&d_rotation_matrix, 9 * sizeof(float));
-	// cudaMemcpy(d_rotation_matrix, rotation_matrix, 9 * sizeof(float), cudaMemcpyHostToDevice);
+	gpuErrchk(cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)));
+    gpuErrchk(cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice));
 
-	// transformMesh(d_vertices, mesh_ptr->vertices.size(), d_normals, mesh_ptr->normals.size(), translation, rotation_matrix);
+    gpuErrchk(cudaMalloc((void**)&d_normals, mesh_ptr->normals.size() * sizeof(Vector)));
+    gpuErrchk(cudaMemcpy(d_normals, &(mesh_ptr->normals[0]), mesh_ptr->normals.size() * sizeof(Vector), cudaMemcpyHostToDevice));
+
+    gpuErrchk(cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)));
+    gpuErrchk(cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice));
+
+	float *d_rotation_matrix;
+	cudaMalloc(&d_rotation_matrix, 9 * sizeof(float));
+	cudaMemcpy(d_rotation_matrix, rotation_matrix, 9 * sizeof(float), cudaMemcpyHostToDevice);
+
 
 	KernelInit<<<1, 1>>>(d_s, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), d_normals, mesh_ptr->normals.size());
 
-	dim3 block(16, 16, 1);
-	dim3 grid(W / block.x, H / block.y, 1);
+	/// DISPLAY WITH OPEN GL INTEROPERATION (Reference http://raytracey.blogspot.com/2015/12/gpu-path-tracing-tutorial-2-interactive.html)
+	glutInit(&argc, argv);
+	// specify the display mode to be RGB and single buffering
+	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
+	// specify the initial window position
+	glutInitWindowPosition(100, 100);
+	// specify the initial window size
+	glutInitWindowSize(W, H);
+	// create the window and set title
+	glutCreateWindow("Ray tracer in CUDA");
+	// init OpenGL
+	glClearColor(0.0, 0.0, 0.0, 0.0);
+	glMatrixMode(GL_PROJECTION);
+	gluOrtho2D(0.0, W, 0.0, H);
+	fprintf(stderr, "OpenGL initialized \n");
+	// register callback function to display graphics:
+	glutDisplayFunc(disp);
+	glewInit();
+	if (!glewIsSupported("GL_VERSION_2_0 ")) {
+		fprintf(stderr, "ERROR: Support for necessary OpenGL extensions missing.");
+		fflush(stderr);
+		exit(0);
+	}
+	fprintf(stderr, "glew initialized  \n");
+	// call Timer():
+	Timer(0);
+	//create VBO (vertex buffer object)
+	createVBO(&vbo);
+	fprintf(stderr, "VBO created  \n");
+	// enter the main loop and process events
+	fprintf(stderr, "Entering glutMainLoop...  \n");
+	glutMainLoop();
 
-	renderScene(d_s, d_colors, W, H, num_rays, num_bounce);
 
-	/*
-		Transfer result back from GPU
-		Clean memory
-		Deduce final result
-	*/
-    gpuErrchk( cudaMemcpy(h_colors, d_colors, H * W * sizeof(Vector), cudaMemcpyDeviceToHost) );
+	cudaFree(accumulatebuffer);
+	cudaFree(dptr);
+	 
     gpuErrchk( cudaFree(d_s) );
-    gpuErrchk( cudaFree(d_colors) );
     gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
-	// delete[] arr_bvh;
-	saveImage(h_colors, W, H);
-    delete[] h_colors;
-
-	/*
-		Measure runtime
-	*/
-    auto end_time = std::chrono::system_clock::now();
-    std::chrono::duration<double> run_time = end_time - start_time;
-    std::cout << "Rendering time: " << run_time.count() << " s\n";
 
 	return 0;
 }
