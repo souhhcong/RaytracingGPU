@@ -222,22 +222,22 @@ public:
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
 		float t_tmp;
 
-		#define BUILD_BVH(var, idx) var.left = tex1D<float>(bvh, (idx) * 10 + 0),\
-									var.right = tex1D<float>(bvh, (idx) * 10 + 1),\
+		#define BUILD_BVH(var, idx) var.left = arr_bvh[(idx) * 10 + 0],\
+									var.right = arr_bvh[(idx) * 10 + 1],\
 									var.bb = BoundingBox(\
 										Vector(\
-											tex1D<float>(bvh, (idx) * 10 + 2),\
-											tex1D<float>(bvh, (idx) * 10 + 3),\
-											tex1D<float>(bvh, (idx) * 10 + 4)\
+											arr_bvh[(idx) * 10 + 2],\
+											arr_bvh[(idx) * 10 + 3],\
+											arr_bvh[(idx) * 10 + 4]\
 										),\
 										Vector(\
-											tex1D<float>(bvh, (idx) * 10 + 5),\
-											tex1D<float>(bvh, (idx) * 10 + 6),\
-											tex1D<float>(bvh, (idx) * 10 + 7)\
+											arr_bvh[(idx) * 10 + 5],\
+											arr_bvh[(idx) * 10 + 6],\
+											arr_bvh[(idx) * 10 + 7]\
 										)\
 									),\
-									var.triangle_start = tex1D<float>(bvh, (idx) * 10 + 8),\
-									var.triangle_end = tex1D<float>(bvh, (idx) * 10 + 9)
+									var.triangle_start = arr_bvh[(idx) * 10 + 8],\
+									var.triangle_end = arr_bvh[(idx) * 10 + 9]
 
 		BVHDevice root_bvh;
 		BUILD_BVH(root_bvh, 0);
@@ -289,7 +289,7 @@ public:
 	int indices_size;
 	Vector* vertices;
 	int vertices_size;
-	cudaTextureObject_t bvh;
+	float *arr_bvh;
 };
 
 class TriangleMeshHost {
@@ -692,7 +692,7 @@ public:
 // 	}
 // }
 
-__global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
+__global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
 	extern __shared__ float shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	float *shared_colors = shared_memory;
@@ -719,7 +719,7 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 		mesh.indices = indices;
 		mesh.vertices_size = vertices_size;
 		mesh.indices_size = indices_size;
-		mesh.bvh = bvh;
+		mesh.arr_bvh = arr_bvh;
 		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
 		shared_mesh->id = idx;
 		shared_scene->objects[idx] = (Geometry *)shared_mesh;
@@ -837,20 +837,9 @@ int main(int argc, char **argv) {
 	float *arr_bvh = (float *)malloc(sizeof(float) * mesh_ptr->n_bvhs * 10);
 	size_t arr_size = 1;
 	mesh_ptr->bvhTreeToArray(&(mesh_ptr->bvh), arr_bvh, arr_size);
-	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-	cudaArray *cu_arr;
-	cudaMallocArray(&cu_arr, &chan_desc, sizeof(float) * mesh_ptr->n_bvhs * 10);
-	cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
-	cudaResourceDesc res_desc = {};
-    res_desc.resType = cudaResourceTypeArray;
-    res_desc.res.array.array = cu_arr;
-	cudaTextureDesc tex_desc = {};
-    tex_desc.addressMode[0] = cudaAddressModeClamp;
-    tex_desc.filterMode = cudaFilterModePoint;
-    tex_desc.readMode = cudaReadModeElementType;
-    tex_desc.normalizedCoords = 0;
-	cudaTextureObject_t bvh = 0;
-    cudaCreateTextureObject(&bvh, &res_desc, &tex_desc, nullptr);
+	float *d_arr_bvh;
+	cudaMalloc(&d_arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10);
+	cudaMemcpy(d_arr_bvh, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
 
 	/*
 		Transfer remaining neccessary mesh information to GPU
@@ -887,7 +876,7 @@ int main(int argc, char **argv) {
 		mesh_ptr->indices.size(),
 		d_vertices,
 		mesh_ptr->vertices.size(),
-		bvh
+		d_arr_bvh
 	);
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -902,8 +891,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaFree(d_colors) );
     gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
-	cudaDestroyTextureObject(bvh);
-	cudaFreeArray(cu_arr);
+	gpuErrchk( cudaFree(d_arr_bvh) );
 	delete[] arr_bvh;
 	for (int i = 0; i < H; ++i) {
 		for (int j = 0; j < W; ++j) {
