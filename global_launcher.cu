@@ -1081,7 +1081,7 @@ void saveImage(Vector* h_colors, int W, int H) {
             image[(i * W + j) * 3 + 2] = min(pow(h_colors[(i * W + j)][2], 1.0 / 2.2), 255.0);
         }
     }
-    stbi_write_png("./global_output/image.png", W, H, 3, image, 0);
+    stbi_write_png("./global_image.png", W, H, 3, image, 0);
     delete[] image;
 }
 
