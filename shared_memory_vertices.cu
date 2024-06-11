@@ -700,8 +700,12 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
 	TriangleMesh *shared_mesh = (TriangleMesh *)&shared_scene[1];
+	Vector *shared_vertices = (Vector *)&shared_mesh[1];
 
 	int idx = (int)threadIdx.x;
+	for (int i = idx; i < vertices_size; i += blockDim.x) {
+		shared_vertices[i] = vertices[i];
+	}
 	if (idx == 7) {
 		shared_scene->L = Vector(-10., 20., 40.);
 		shared_scene->objects_size = 7;
@@ -715,7 +719,7 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 	} else if (idx == 1) {
 		TriangleMesh mesh = TriangleMesh();
 		mesh.albedo = Vector(0.25, 0.25, 0.25);
-		mesh.vertices = vertices;
+		mesh.vertices = shared_vertices;
 		mesh.indices = indices;
 		mesh.vertices_size = vertices_size;
 		mesh.indices_size = indices_size;
@@ -877,6 +881,7 @@ int main(int argc, char **argv) {
 		+ sizeof(TriangleMesh)
 		+ sizeof(curandState) * BLOCK_DIM
 		+ sizeof(Scene)
+		+ sizeof(Vector) * mesh_ptr->vertices.size()
 	>>>(
 		d_colors,
 		W,
