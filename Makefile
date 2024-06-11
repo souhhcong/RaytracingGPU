@@ -1,7 +1,12 @@
 NVCC = /usr/local/cuda/bin/nvcc
 
-raytracer:
-	$(NVCC) raytracer.cu -o raytracer -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+all: global shared
+
+global:
+	$(NVCC) global_launcher.cu -o global -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+
+shared:
+	$(NVCC) shared_launcher.cu -o shared -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
 
 clean:
-	rm -f raytracer
+	rm -f *.out
