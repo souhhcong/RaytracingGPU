@@ -16,5 +16,8 @@ array_bvh:
 shared:
 	$(NVCC) share_mem.cu -o shared -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
 
+cpu:
+	g++ cpu_launcher.cpp -o cpu -O3 -fopenmp -std=c++17
+
 clean:
 	rm -f *.out realtime global shared array_bvh
