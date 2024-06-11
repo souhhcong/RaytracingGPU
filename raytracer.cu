@@ -855,7 +855,7 @@ public:
 				if (objects[sphere_id]->mirror) {
 					// Reflection
 					types[ray_depth] = 0;
-				 float epsilon = 1e-6;
+				 float epsilon = 1e-4;
 					Vector P_adjusted = P + epsilon * N;
 					Vector new_direction = ray.u - 2 * dot(ray.u, N) * N;
 					Ray reflected_ray(P_adjusted, new_direction, ray.refraction_index);
@@ -863,7 +863,7 @@ public:
 				} else if (objects[sphere_id]->in_refraction_index != objects[sphere_id]->out_refraction_index) {
 					// Refraction
 					types[ray_depth] = 0;
-				 float epsilon = 1e-6;
+				 float epsilon = 1e-4;
 				 float refract_ratio;
 					bool out2in = ray.refraction_index == objects[sphere_id]->out_refraction_index;
 					if (out2in) { 
@@ -895,7 +895,7 @@ public:
 					// 	Get shadow
 					Vector P_prime;
 					int sphere_id_shadow;
-				 	float epsilon = 1e-6;
+				 	float epsilon = 1e-4;
 					Vector P_adjusted = P + epsilon * N;
 					Vector N_prime;
 					bool _ = intersect_all(Ray(P_adjusted, NORMED_VEC(L - P_adjusted)), P_prime, N_prime, sphere_id_shadow);
