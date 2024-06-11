@@ -264,8 +264,8 @@ public:
 				float t_left, t_right;
 				bool ok_left = left_bvh.bb.intersect(r, t_left);
 				bool ok_right = right_bvh.bb.intersect(r, t_right);
-				if (ok_left) s[s_size++] = cur_bvh.left;
 				if (ok_right) s[s_size++] = cur_bvh.right;
+				if (ok_left) s[s_size++] = cur_bvh.left;
 			} else {
 				// Leaf
 				for (int i = cur_bvh.triangle_start; i < cur_bvh.triangle_end; i++) {
