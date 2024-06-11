@@ -4,5 +4,5 @@ Run `make` in the repo directory which will generate an executable `./raytracer`
 
 The code has only been tested on a Polytechnique machine (Ubuntu) with CUDA pre-installed.
 
-![Spheres with circulating light source](gif/sphere.gif)
+![Spheres with circulating light source](gif/spheres.gif)
 ![Playing with cat](gif/cat.gif)
