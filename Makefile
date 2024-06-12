@@ -2,7 +2,7 @@ NVCC = /usr/local/cuda/bin/nvcc
 
 LDLIBS = -lglut -lGL -lGLU -lm -lGLEW
 
-all: global optimized realtime array_bvh cpu
+all: global optimized realtime array_bvh cpu optimized_vertices-in-shared
 
 realtime:
 	$(NVCC) realtime_render.cu -o realtime -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include $(LDLIBS)
@@ -16,8 +16,11 @@ array_bvh:
 optimized:
 	$(NVCC) optimized.cu -o optimized -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
 
+optimized_vertices-in-shared:
+	$(NVCC) optimized_vertices-in-shared.cu -o optimized_vertices-in-shared -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+
 cpu:
 	g++ cpu_launcher.cpp -o cpu -O3 -fopenmp -std=c++17
 
 clean:
-	rm -f *.out realtime global optimized array_bvh
+	rm -f *.out realtime global optimized array_bvh optimized_vertices-in-shared
