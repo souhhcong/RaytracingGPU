@@ -807,7 +807,7 @@ int main(int argc, char **argv) {
 	mesh_ptr->rescale(0.6f, Vector(0.f, -4.f, 0.f));
 	
 	/*
-		Build, convert, and transfer BVH tree to GPU texture memory
+		Build, convert, and transfer BVH tree to GPU
 	*/
 	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
 	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
