@@ -867,7 +867,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaFree(d_vertices) );
 	gpuErrchk( cudaFree(d_arr_bvh) );
 	delete[] arr_bvh;
-	stbi_write_png("image_optimized.png", W, H, 3, image, 0);
+	stbi_write_png("image_optimized_vertices-in-shared.png", W, H, 3, image, 0);
     delete image;
 
 	/*
