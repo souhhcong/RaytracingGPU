@@ -692,10 +692,10 @@ public:
 // 	}
 // }
 
-__global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
-	extern __shared__ float shared_memory[];
+__global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
+	extern __shared__ char shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-	float *shared_colors = shared_memory;
+	char *shared_colors = shared_memory;
 	Sphere *shared_objects = (Sphere *)&shared_colors[blockDim.x * 3];
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
@@ -815,10 +815,8 @@ int main(int argc, char **argv) {
 
     int image_size = H * W * 3;
 	char *image = new char[image_size];
-	int colors_size = image_size;
-	float *h_colors = new float[colors_size];
-	float *d_colors;
-    gpuErrchk( cudaMalloc((void**)&d_colors, sizeof(float) * colors_size) );
+	char *d_colors;
+    gpuErrchk( cudaMalloc((void**)&d_colors, sizeof(char) * image_size) );
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
 
@@ -862,7 +860,7 @@ int main(int argc, char **argv) {
     KernelLaunch<<<
 		GRID_DIM,
 		BLOCK_DIM,
-		sizeof(float) * BLOCK_DIM * 3
+		sizeof(char) * BLOCK_DIM * 3
 		+ sizeof(Geometry) * 10
 		+ sizeof(TriangleMesh)
 		+ sizeof(curandState) * BLOCK_DIM
@@ -887,20 +885,12 @@ int main(int argc, char **argv) {
 		Clean memory
 		Deduce final result
 	*/
-    gpuErrchk( cudaMemcpy(h_colors, d_colors, sizeof(float) * colors_size, cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(image, d_colors, sizeof(char) * image_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_colors) );
-    gpuErrchk( cudaFree(d_indices) );
+	gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
 	gpuErrchk( cudaFree(d_arr_bvh) );
 	delete[] arr_bvh;
-	for (int i = 0; i < H; ++i) {
-		for (int j = 0; j < W; ++j) {
-			image[(i * W + j) * 3 + 0] = h_colors[(i * W + j) * 3 + 0];
-			image[(i * W + j) * 3 + 1] = h_colors[(i * W + j) * 3 + 1];
-			image[(i * W + j) * 3 + 2] = h_colors[(i * W + j) * 3 + 2];
-		}
-	}
-	delete h_colors;
 	stbi_write_png("image_shared_memory.png", W, H, 3, image, 0);
     delete image;
 
