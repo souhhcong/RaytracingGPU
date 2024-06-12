@@ -768,7 +768,7 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 	__syncthreads();
 	
 	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
-    int i = index / W, j = index % W;
+    int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	Vector C(0, 0, 55);
 	float alpha = PI/3;
 	float z = -W / (2 * tan(alpha/2));
@@ -776,20 +776,15 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
     Vector u_center((float)j - (float)W / 2 + 0.5, (float)H / 2 - i - 0.5, z);
 	// Box-muller for anti-aliasing
 	float sigma = 0.2;
-	Vector color_out;
-	for (int t = 0; t < num_rays; ++t) {
-		float r1 = uniform(shared_scene->rand_states, seed);
-		float r2 = uniform(shared_scene->rand_states, seed);
-		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
-		u.normalize();
-		Ray r(C, u);
-		Vector color = shared_scene->getColorIterative(r, num_bounce);
-		color_out = color_out + color;
-	}
-	color_out = color_out / num_rays;
-	shared_colors[threadIdx.x * 3 + 0] = min(std::pow(color_out[0], 1./2.2), 255.);
-    shared_colors[threadIdx.x * 3 + 1] = min(std::pow(color_out[1], 1./2.2), 255.);
-    shared_colors[threadIdx.x * 3 + 2] = min(std::pow(color_out[2], 1./2.2), 255.);
+	float r1 = uniform(shared_scene->rand_states, seed);
+	float r2 = uniform(shared_scene->rand_states, seed);
+	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
+	u.normalize();
+	Ray r(C, u);
+	Vector color = shared_scene->getColorIterative(r, num_bounce);
+	shared_colors[threadIdx.x * 3 + 0] = color[0];
+    shared_colors[threadIdx.x * 3 + 1] = color[1];
+    shared_colors[threadIdx.x * 3 + 2] = color[2];
 	__syncthreads();
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
@@ -808,19 +803,23 @@ int main(int argc, char **argv) {
 	auto start_time = std::chrono::system_clock::now();
 
 	const int num_rays = atoi(argv[1]), num_bounce = atoi(argv[2]);
-	const int W = 512;
-	const int H = 512;
+	int W = 512;
+	int H = 512;
+	int colors_size = sizeof(float) * H * W * 3 * num_rays;
 	const int BLOCK_DIM = 128;
-	const int GRID_DIM = H * W / BLOCK_DIM;
-
-    int image_size = H * W * 3;
-	char *image = new char[image_size];
-	int colors_size = image_size;
-	float *h_colors = new float[colors_size];
-	float *d_colors;
-    gpuErrchk( cudaMalloc((void**)&d_colors, sizeof(float) * colors_size) );
+	int GRID_DIM = W * H * num_rays / BLOCK_DIM;
+	
+	Scene *d_s;
+	float *h_colors, *d_colors;
+    char *image;
+	h_colors = new float[H * W * 3 * num_rays];
+    image = new char[H * W * 3];
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
+	
+	// Malloc & transfer to GPU
+    gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
+    gpuErrchk( cudaMalloc((void**)&d_colors, colors_size) );
 
 	/*
 		Instantiate cat object
@@ -887,7 +886,8 @@ int main(int argc, char **argv) {
 		Clean memory
 		Deduce final result
 	*/
-    gpuErrchk( cudaMemcpy(h_colors, d_colors, sizeof(float) * colors_size, cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(h_colors, d_colors, colors_size, cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaFree(d_s) );
     gpuErrchk( cudaFree(d_colors) );
     gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
@@ -895,13 +895,22 @@ int main(int argc, char **argv) {
 	delete[] arr_bvh;
 	for (int i = 0; i < H; ++i) {
 		for (int j = 0; j < W; ++j) {
-			image[(i * W + j) * 3 + 0] = h_colors[(i * W + j) * 3 + 0];
-			image[(i * W + j) * 3 + 1] = h_colors[(i * W + j) * 3 + 1];
-			image[(i * W + j) * 3 + 2] = h_colors[(i * W + j) * 3 + 2];
+			Vector colors_sum;
+			for (int t = 0; t < num_rays; ++t) {
+				colors_sum = colors_sum + Vector(
+					h_colors[((i * W + j) * num_rays + t) * 3 + 0],
+					h_colors[((i * W + j) * num_rays + t) * 3 + 1],
+					h_colors[((i * W + j) * num_rays + t) * 3 + 2]
+				);
+			}
+			Vector colors_avg = colors_sum / num_rays;
+			image[(i * W + j) * 3 + 0] = min(std::pow(colors_avg[0], 1./2.2), 255.);
+			image[(i * W + j) * 3 + 1] = min(std::pow(colors_avg[1], 1./2.2), 255.);
+			image[(i * W + j) * 3 + 2] = min(std::pow(colors_avg[2], 1./2.2), 255.);
 		}
 	}
 	delete h_colors;
-	stbi_write_png("image_shared_memory.png", W, H, 3, image, 0);
+	stbi_write_png("image_shared_memory.png", W, H, 3, &image[0], 0);
     delete image;
 
 	/*
