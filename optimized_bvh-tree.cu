@@ -498,8 +498,6 @@ public:
 	}
 
 	void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
-		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
-		// printf("%d %d\n", triangle_start, triangle_end);
 		n_bvhs++;
 		cur->triangle_start = triangle_start;
 		cur->triangle_end = triangle_end;
@@ -881,7 +879,7 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaFree(d_colors) );
 	gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
-	stbi_write_png("image_shared_memory.png", W, H, 3, image, 0);
+	stbi_write_png("image_optimized_bvh-tree.png", W, H, 3, image, 0);
     delete image;
 
 	/*
