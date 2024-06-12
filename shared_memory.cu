@@ -476,8 +476,6 @@ public:
 	}
 
 	void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
-		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
-		// printf("%d %d\n", triangle_start, triangle_end);
 		n_bvhs++;
 		cur->triangle_start = triangle_start;
 		cur->triangle_end = triangle_end;
@@ -672,26 +670,6 @@ public:
 	curandState* rand_states;
 };
 
-// __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
-// 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
-
-// 	if (!id) {
-// 		cat->albedo = Vector(0.25, 0.25, 0.25);
-// 	 	cat->indices_size = indices_size;
-// 		cat->indices = indices;
-// 		cat->vertices_size = vertices_size;
-// 		cat->vertices = vertices;
-// 		// printf("%d %d\n", indices_size, vertices_size);
-// 		// cat->normals_size;
-// 		// cat->normals;
-// 		// cat->uvs_size;
-// 		// cat->uvs;
-// 		// cat->vertexcolors_size;
-// 		// cat->vertexcolors;
-// 		cat->bvh = bvh;
-// 	}
-// }
-
 __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
 	extern __shared__ char shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -849,13 +827,6 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
     gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
-	
-	// TriangleMesh *d_mesh = NULL;
-	// gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
-
-	// KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), bvh);
-	// gpuErrchk( cudaPeekAtLastError() );
-    // gpuErrchk( cudaDeviceSynchronize() );
 
     KernelLaunch<<<
 		GRID_DIM,
