@@ -1,32 +1,33 @@
 NVCC = /usr/local/cuda/bin/nvcc
 
 LDLIBS = -lglut -lGL -lGLU -lm -lGLEW
+CUDAFLAGS = -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include --use_fast_math
 
 all: global optimized realtime array_bvh cpu optimized_vertices-in-shared optimized_non-coalesced optimized_bvh-tree optimized_bvh-texture
 
 realtime:
-	$(NVCC) realtime_render.cu -o realtime -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include $(LDLIBS)
+	$(NVCC) realtime_render.cu -o realtime $(CUDAFLAGS) $(LDLIBS)
 
 global:
-	$(NVCC) global_launcher.cu -o global -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) global_launcher.cu -o global $(CUDAFLAGS)
 
 array_bvh:
-	$(NVCC) array_bvh.cu -o array_bvh -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) array_bvh.cu -o array_bvh $(CUDAFLAGS)
 
 optimized:
-	$(NVCC) optimized.cu -o optimized -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) optimized.cu -o optimized $(CUDAFLAGS)
 
 optimized_vertices-in-shared:
-	$(NVCC) optimized_vertices-in-shared.cu -o optimized_vertices-in-shared -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) optimized_vertices-in-shared.cu -o optimized_vertices-in-shared $(CUDAFLAGS)
 
 optimized_non-coalesced:
-	$(NVCC) optimized_non-coalesced.cu -o optimized_non-coalesced -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) optimized_non-coalesced.cu -o optimized_non-coalesced $(CUDAFLAGS)
 
 optimized_bvh-tree:
-	$(NVCC) optimized_bvh-tree.cu -o optimized_bvh-tree -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) optimized_bvh-tree.cu -o optimized_bvh-tree $(CUDAFLAGS)
 
 optimized_bvh-texture:
-	$(NVCC) optimized_bvh-texture.cu -o optimized_bvh-texture -O3 -arch=sm_75 -std=c++17 -I/usr/local/cuda/include
+	$(NVCC) optimized_bvh-texture.cu -o optimized_bvh-texture $(CUDAFLAGS)
 
 cpu:
 	g++ cpu_launcher.cpp -o cpu -O3 -fopenmp -std=c++17
