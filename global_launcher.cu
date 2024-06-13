@@ -488,11 +488,13 @@ void readOBJ(const char *obj)
                 col[2] = std::min(1.f, std::max(0.f, col[2]));
 
                 vertices.push_back(vec);
+				vec = vec*0.8+Vector(0, -10, 0);
                 vertexcolors.push_back(col);
             }
             else
             {
                 sscanf(line, "v %f %f %f\n", &vec[0], &vec[1], &vec[2]);
+				vec = vec*0.8+Vector(0, -10, 0);
                 vertices.push_back(vec);
             }
         }
@@ -1129,7 +1131,7 @@ int main(int argc, char **argv) {
 	TriangleMeshHost* mesh_ptr = new TriangleMeshHost(); // cat
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
-	mesh_ptr->rescale(0.6f, Vector(0.f, -10.f, 0.f));
+	mesh_ptr->rescale(0.6f, Vector(0.f, -4.f, 0.f));
 
 	/*
 		Measure runtime
