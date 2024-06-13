@@ -7,10 +7,10 @@
 #include <curand_kernel.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../stb_image_write.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../stb_image.h"
 
 #define SQR(X) ((X)*(X))
 #define NORMED_VEC(X) ((X) / (X).norm())
@@ -207,6 +207,53 @@ public:
 
 	#define between(A, B, C) ((A) <= (B) && (B) <= (C))
 
+	__device__ BoundingBox compute_bbox(int triangle_start, int triangle_end) {
+		BoundingBox bb;
+		for (int i = triangle_start; i < triangle_end; i++) {
+			bb.update(vertices[indices[i].vtxi]);
+			bb.update(vertices[indices[i].vtxj]);
+			bb.update(vertices[indices[i].vtxk]);
+		}
+		return bb;
+	}
+
+	__device__ void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
+		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
+		// printf("%d %d\n", triangle_start, triangle_end);
+		cur->triangle_start = triangle_start;
+		cur->triangle_end = triangle_end;
+		cur->left = NULL;
+		cur->right = NULL;
+		cur->bb = compute_bbox(triangle_start, triangle_end);
+
+		Vector diag = cur->bb.mx - cur->bb.mn;
+		int max_axis;
+		if (diag[0] >= diag[1] && diag[0] >= diag[2])
+			max_axis = 0;
+		else if (diag[1] >= diag[0] && diag[1] >= diag[2])
+			max_axis = 1;
+		else
+			max_axis = 2;
+
+		int pivot = triangle_start;
+		float split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
+		for (int i = triangle_start; i < triangle_end; i++) {
+			float cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
+			if (cen < split) {
+				swap(indices[i], indices[pivot]);
+				pivot++;
+			}
+		}
+
+		if (pivot <= triangle_start || pivot >= triangle_end - 1 || triangle_end - triangle_start < 5) {
+			return;
+		}
+		cur->left = new BVH;
+		cur->right = new BVH;
+		buildBVH(cur->left, triangle_start, pivot);
+		buildBVH(cur->right, pivot, triangle_end);
+	}
+
 	__device__ bool moller_trumbore(const Vector &A, const Vector &B, const Vector &C, Vector& N, const Ray &r, float &t) {
 		Vector e1 = B - A;
 		Vector e2 = C - A;
@@ -219,56 +266,30 @@ public:
 		return beta + gamma <= 1 && t > 0;
 	}
 	
-	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
+	__device__ bool intersect(const Ray &r, float &t, Vector &N) {
+		// printf("inter!\n");
+		// printf("Intersect mesh\n");
 		float t_tmp;
-
-		#define BUILD_BVH(var, idx) var.left = tex1D<float>(bvh, (idx) * 10 + 0),\
-									var.right = tex1D<float>(bvh, (idx) * 10 + 1),\
-									var.bb = BoundingBox(\
-										Vector(\
-											tex1D<float>(bvh, (idx) * 10 + 2),\
-											tex1D<float>(bvh, (idx) * 10 + 3),\
-											tex1D<float>(bvh, (idx) * 10 + 4)\
-										),\
-										Vector(\
-											tex1D<float>(bvh, (idx) * 10 + 5),\
-											tex1D<float>(bvh, (idx) * 10 + 6),\
-											tex1D<float>(bvh, (idx) * 10 + 7)\
-										)\
-									),\
-									var.triangle_start = tex1D<float>(bvh, (idx) * 10 + 8),\
-									var.triangle_end = tex1D<float>(bvh, (idx) * 10 + 9)
-
-		BVHDevice root_bvh;
-		BUILD_BVH(root_bvh, 0);
-		if (!root_bvh.bb.intersect(r, t_tmp)) {
-			return 0;
-		}
-
-		int s[30];
+		if (!bvh.bb.intersect(r, t_tmp)) return 0;
+		BVH* s[30];
 		int s_size = 0;
-		s[s_size++] = 0;
+		s[s_size++] = &bvh;
 
 
 		float t_min = INF;
-		while (s_size) {
-			int cur = s[s_size-1];
+		while(s_size) {
+			const BVH* cur = s[s_size-1];
 			s_size--;
-			BVHDevice cur_bvh;
-			BUILD_BVH(cur_bvh, cur);
-			if (cur_bvh.left != -1) {
-				BVHDevice left_bvh;
-				BUILD_BVH(left_bvh, cur_bvh.left);
-				BVHDevice right_bvh;
-				BUILD_BVH(right_bvh, cur_bvh.right);
+			if (cur->left) {
 				float t_left, t_right;
-				bool ok_left = left_bvh.bb.intersect(r, t_left);
-				bool ok_right = right_bvh.bb.intersect(r, t_right);
-				if (ok_right) s[s_size++] = cur_bvh.right;
-				if (ok_left) s[s_size++] = cur_bvh.left;
+				bool ok_left = cur->left->bb.intersect(r, t_left);
+				bool ok_right = cur->right->bb.intersect(r, t_right);
+				// printf("%d %d\n", ok_left, ok_right);
+				if (ok_left) s[s_size++] = cur->left;
+				if (ok_right) s[s_size++] = cur->right;
 			} else {
 				// Leaf
-				for (int i = cur_bvh.triangle_start; i < cur_bvh.triangle_end; i++) {
+				for (int i = cur->triangle_start; i < cur->triangle_end; i++) {
 					float t_cur;
 					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
 					Vector N_triangle;
@@ -289,7 +310,8 @@ public:
 	int indices_size;
 	Vector* vertices;
 	int vertices_size;
-	cudaTextureObject_t bvh;
+	BoundingBox bb;
+	BVH bvh;
 };
 
 class TriangleMeshHost {
@@ -670,7 +692,19 @@ public:
 	curandState* rand_states;
 };
 
-__global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
+__global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size) {
+	if (blockIdx.x * blockDim.x + threadIdx.x == 0) {
+		cat->albedo = Vector(0.25, 0.25, 0.25);
+	 	cat->indices_size = indices_size;
+		cat->indices = indices;
+		cat->vertices_size = vertices_size;
+		cat->vertices = vertices;
+		cat->bvh.bb = cat->compute_bbox(0, cat->indices_size);
+		cat->buildBVH(&(cat->bvh), 0, cat->indices_size);
+	}
+}
+
+__global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_bounce, TriangleMesh *cat) {
 	extern __shared__ char shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	char *shared_colors = shared_memory;
@@ -691,13 +725,7 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
 		shared_scene->rand_states = shared_rand_states;
 	} else if (idx == 1) {
-		TriangleMesh mesh = TriangleMesh();
-		mesh.albedo = Vector(0.25, 0.25, 0.25);
-		mesh.vertices = vertices;
-		mesh.indices = indices;
-		mesh.vertices_size = vertices_size;
-		mesh.indices_size = indices_size;
-		mesh.bvh = bvh;
+		TriangleMesh mesh = *cat;
 		memcpy(shared_mesh, &mesh, sizeof(TriangleMesh));
 		shared_mesh->id = idx;
 		shared_scene->objects[idx] = (Geometry *)shared_mesh;
@@ -756,12 +784,12 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 	float sigma = 0.2;
 	Vector color_out;
 	for (int t = 0; t < num_rays; ++t) {
-	float r1 = uniform(shared_scene->rand_states, seed);
-	float r2 = uniform(shared_scene->rand_states, seed);
-	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
-	u.normalize();
-	Ray r(C, u);
-	Vector color = shared_scene->getColorIterative(r, num_bounce);
+		float r1 = uniform(shared_scene->rand_states, seed);
+		float r2 = uniform(shared_scene->rand_states, seed);
+		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
+		u.normalize();
+		Ray r(C, u);
+		Vector color = shared_scene->getColorIterative(r, num_bounce);
 		color_out = color_out + color;
 	}
 	color_out = color_out / num_rays;
@@ -790,7 +818,7 @@ int main(int argc, char **argv) {
 	const int H = 512;
 	const int BLOCK_DIM = 128;
 	const int GRID_DIM = H * W / BLOCK_DIM;
-	
+
     int image_size = H * W * 3;
 	char *image = new char[image_size];
 	char *d_colors;
@@ -805,29 +833,6 @@ int main(int argc, char **argv) {
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
 	mesh_ptr->rescale(0.6f, Vector(0.f, -4.f, 0.f));
-	
-	/*
-		Build, convert, and transfer BVH tree to GPU
-	*/
-	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
-	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
-	float *arr_bvh = (float *)malloc(sizeof(float) * mesh_ptr->n_bvhs * 10);
-	size_t arr_size = 1;
-	mesh_ptr->bvhTreeToArray(&(mesh_ptr->bvh), arr_bvh, arr_size);
-	cudaChannelFormatDesc chan_desc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
-	cudaArray *cu_arr;
-	cudaMallocArray(&cu_arr, &chan_desc, sizeof(float) * mesh_ptr->n_bvhs * 10);
-	cudaMemcpyToArray(cu_arr, 0, 0, arr_bvh, sizeof(float) * mesh_ptr->n_bvhs * 10, cudaMemcpyHostToDevice);
-	cudaResourceDesc res_desc = {};
-    res_desc.resType = cudaResourceTypeArray;
-    res_desc.res.array.array = cu_arr;
-	cudaTextureDesc tex_desc = {};
-    tex_desc.addressMode[0] = cudaAddressModeClamp;
-    tex_desc.filterMode = cudaFilterModePoint;
-    tex_desc.readMode = cudaReadModeElementType;
-    tex_desc.normalizedCoords = 0;
-	cudaTextureObject_t bvh = 0;
-    cudaCreateTextureObject(&bvh, &res_desc, &tex_desc, nullptr);
 
 	/*
 		Transfer remaining neccessary mesh information to GPU
@@ -838,6 +843,13 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
     gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
+	
+	TriangleMesh *d_mesh = NULL;
+	gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
+
+	KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size());
+	gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
 
     KernelLaunch<<<
 		GRID_DIM,
@@ -853,11 +865,7 @@ int main(int argc, char **argv) {
 		H,
 		num_rays,
 		num_bounce,
-		d_indices,
-		mesh_ptr->indices.size(),
-		d_vertices,
-		mesh_ptr->vertices.size(),
-		bvh
+		d_mesh
 	);
 	gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -869,12 +877,9 @@ int main(int argc, char **argv) {
 	*/
     gpuErrchk( cudaMemcpy(image, d_colors, sizeof(char) * image_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_colors) );
-    gpuErrchk( cudaFree(d_indices) );
+	gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
-	cudaDestroyTextureObject(bvh);
-	cudaFreeArray(cu_arr);
-	delete[] arr_bvh;
-	stbi_write_png("image_optimized_bvh-texture.png", W, H, 3, image, 0);
+	stbi_write_png("image_optimized_bvh-tree.png", W, H, 3, image, 0);
     delete image;
 
 	/*

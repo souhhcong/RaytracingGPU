@@ -7,10 +7,10 @@
 #include <curand_kernel.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../stb_image_write.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../stb_image.h"
 
 #define SQR(X) ((X)*(X))
 #define NORMED_VEC(X) ((X) / (X).norm())
@@ -663,6 +663,93 @@ public:
 		return ans_color;
 	}
 
+    __device__ Vector getColor(const Ray& ray, int ray_depth) {
+		if (ray_depth < 0) return Vector(0., 0., 0.); // terminates recursion at some <- point
+		Vector P, N;
+		int sphere_id = -1;
+		bool inter = intersect_all(ray, P, N, sphere_id);
+		Vector color;
+		if (inter) {
+			if (objects[sphere_id]->mirror) {
+				// Reflection
+				double epsilon = 1e-4;
+				Vector P_adjusted = P + epsilon * N;
+				Vector new_direction = ray.u - 2 * dot(ray.u, N) * N;
+				Ray reflected_ray(P_adjusted, new_direction, ray.refraction_index);
+				return getColor(reflected_ray, ray_depth - 1);
+			} else if (objects[sphere_id]->in_refraction_index != objects[sphere_id]->out_refraction_index) {
+				// Refraction
+				double epsilon = 1e-4;
+				double refract_ratio;
+				bool out2in = ray.refraction_index == objects[sphere_id]->out_refraction_index;
+				if (out2in) { 
+					// outside to inside
+					refract_ratio = objects[sphere_id]->out_refraction_index / objects[sphere_id]->in_refraction_index;
+				} else { 
+					// inside to outside
+					refract_ratio = objects[sphere_id]->in_refraction_index / objects[sphere_id]->out_refraction_index;
+					N = -N;
+				}
+				if (((out2in && ray.refraction_index > objects[sphere_id]->in_refraction_index) ||
+					(!out2in && ray.refraction_index > objects[sphere_id]->out_refraction_index)) &&
+					SQR(refract_ratio) * (1 - SQR(dot(ray.u, N))) > 1) { 
+					// total internal reflection
+					return getColor(Ray(P + epsilon * N, ray.u - 2 * dot(ray.u, N) * N, ray.refraction_index), ray_depth - 1);
+				}
+				Vector P_adjusted = P - epsilon * N;
+				Vector N_component = - sqrt(1 - SQR(refract_ratio) * (1 - SQR(dot(ray.u, N)))) * N;
+				Vector T_component = refract_ratio * (ray.u - dot(ray.u, N) * N);
+				Vector new_direction = N_component + T_component;
+				if (out2in) {
+					return getColor(Ray(P_adjusted, new_direction, objects[sphere_id]->in_refraction_index), ray_depth - 1);
+				} else {
+					return getColor(Ray(P_adjusted, new_direction, objects[sphere_id]->out_refraction_index), ray_depth - 1);
+				}
+			} else {
+				// 	handle diffuse surfaces
+				// 	Get shadow
+				Vector P_prime;
+				int sphere_id_shadow;
+				double epsilon = 1e-4;
+				Vector P_adjusted = P + epsilon * N;
+				Vector direct_color, indirect_color;
+				Vector N_prime;
+				bool _ = intersect_all(Ray(P_adjusted, NORMED_VEC(L - P_adjusted)), P_prime, N_prime, sphere_id_shadow);
+				
+				if ((P_prime - P_adjusted).norm2() <= (L - P_adjusted).norm2()) {
+					// Is shadow
+					direct_color = Vector(0, 0, 0);
+				} else {
+					// Get direct color
+					Geometry* S = objects[sphere_id];
+					Vector wlight = L - P;
+					wlight.normalize();
+					double l = intensity / (4 * PI * (L - P).norm2()) * max(dot(N, wlight), 0.);
+					direct_color = l * S->albedo / PI;
+				}
+				// Get indirect color by launching ray
+				unsigned int seed = threadIdx.x;
+				double r1 = uniform(rand_states, seed);
+				double r2 = uniform(rand_states, seed);
+				double x = cos(2 * PI * r1) * sqrt(1 - r2);
+				double y = sin(2 * PI * r1) * sqrt(1 - r2);
+				double z = sqrt(r2);
+				Vector T1;
+				if (abs(N[1]) != 0 && abs(N[0]) != 0) {
+					T1 = Vector(-N[1], N[0], 0);
+				} else {
+					T1 = Vector(-N[2], 0, N[0]);
+				}
+				T1.normalize();
+				Vector T2 = cross(N, T1);
+				Vector random_direction = x * T1 + y * T2 + z * N;
+				indirect_color = ((Geometry *)objects[sphere_id])->albedo * getColor(Ray(P_adjusted, random_direction), ray_depth - 1);
+				color = direct_color + indirect_color;
+			}
+		}
+		return color;
+	}
+
 	Geometry* objects[10];
     int objects_size = 0;
 	float intensity = 3e10;
@@ -761,13 +848,17 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
 		u.normalize();
 		Ray r(C, u);
-		Vector color = shared_scene->getColorIterative(r, num_bounce);
+		Vector color = shared_scene->getColor(r, num_bounce);
 		color_out = color_out + color;
 	}
 	color_out = color_out / num_rays;
-	colors[index * 3 + 0] = min(std::pow(color_out[0], 1./2.2), 255.);
-	colors[index * 3 + 1] = min(std::pow(color_out[1], 1./2.2), 255.);
-	colors[index * 3 + 2] = min(std::pow(color_out[2], 1./2.2), 255.);
+	shared_colors[threadIdx.x * 3 + 0] = min(std::pow(color_out[0], 1./2.2), 255.);
+    shared_colors[threadIdx.x * 3 + 1] = min(std::pow(color_out[1], 1./2.2), 255.);
+    shared_colors[threadIdx.x * 3 + 2] = min(std::pow(color_out[2], 1./2.2), 255.);
+	__syncthreads();
+	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
+	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
+	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 2 + threadIdx.x] = shared_colors[blockDim.x * 2 + threadIdx.x];
 }
 
 int main(int argc, char **argv) {

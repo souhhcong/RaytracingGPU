@@ -5,21 +5,23 @@
 #include <iostream>
 #include <chrono>
 #include <curand_kernel.h>
+#include "cutil_math.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../stb_image_write.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../stb_image.h"
 
 #define SQR(X) ((X)*(X))
-#define NORMED_VEC(X) ((X) / (X).norm())
+#define NORMED_VEC(X) (normalize(X))
 #ifndef PI
     #define PI 3.14159265358979323846
 #endif
-#define PRINT_VEC(v) (printf("%s: (%f %f %f)\n", #v, (v)[0], (v)[1], (v)[2]))
+#define PRINT_VEC(v) (printf("%s: (%f %f %f)\n", #v, (v).x, (v).y, (v).z))
 #define INF (1e9+9)
 #define MAX_RAY_DEPTH 10
+#define NORM2(x) (dot(x, x))
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
@@ -37,62 +39,7 @@ __device__ inline float uniform(curandState *rand_states, unsigned int tid) {
 	return RANDOM;
 }
 
-class Vector {
-public:
-	__device__ __host__ Vector(float x = 0, float y = 0, float z = 0) {
-		data[0] = x;
-		data[1] = y;
-		data[2] = z;
-	}
-	__device__ __host__ float norm2() const {
-		return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
-	}
-	__device__ __host__ float norm() const {
-		return sqrt(norm2());
-	}
-	__device__ __host__ void normalize() {
-		float n = norm();
-		data[0] /= n;
-		data[1] /= n;
-		data[2] /= n;
-	}
-	__device__ __host__ float operator[](int i) const { return data[i]; };
-	__device__ __host__ float& operator[](int i) { return data[i]; };
-	float data[3];
-
-	__device__ void print() {
-		printf("%d %d %d\n", data[0], data[1], data[2]);
-	}
-};
-
-__device__ __host__ Vector operator+(const Vector& a, const Vector& b) {
-	return Vector(a[0] + b[0], a[1] + b[1], a[2] + b[2]);
-}
-__device__ __host__ Vector operator-(const Vector& a, const Vector& b) {
-	return Vector(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-}
-__device__ __host__ Vector operator-(const Vector& a) {
-	return Vector(-a[0], -a[1], -a[2]);
-}
-__device__ __host__ Vector operator*(const float a, const Vector& b) {
-	return Vector(a*b[0], a*b[1], a*b[2]);
-}
-__device__ __host__ Vector operator*(const Vector& a, const float b) {
-	return Vector(a[0]*b, a[1]*b, a[2]*b);
-}
-// Element wise vector multiplication
-__device__ __host__ Vector operator*(const Vector& a, const Vector& b) {
-	return Vector(a[0]*b[0], a[1]*b[1], a[2]*b[2]);
-}
-__device__ __host__ Vector operator/(const Vector& a, const float b) {
-	return Vector(a[0] / b, a[1] / b, a[2] / b);
-}
-__device__ __host__ float dot(const Vector& a, const Vector& b) {
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-__device__ __host__ Vector cross(const Vector& a, const Vector& b) {
-	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
-}
+#define Vector float3
 
 class Ray {
 public:
@@ -122,7 +69,7 @@ public:
     Vector C;
     float R;
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
-		float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
+		float delta = SQR(dot(r.u, r.O - C)) - (NORM2(r.O - C) - R*R);
 		if (delta < 0)
 			return 0;
 		float t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
@@ -131,7 +78,7 @@ public:
 			return 0;
 		t = t1 < 0 ? t2 : t1;
 		N = r.O + t * r.u - C;
-		N.normalize();
+		N = normalize(N);
 		// printf("Intersect!\n");
 		return 1;
 	}
@@ -156,7 +103,7 @@ class BoundingBox {
 public:
 	Vector mn, mx;
 
-	__device__ __host__ BoundingBox(): mn(Vector(INF, INF, INF)), mx(Vector(-INF, -INF, -INF)) {};
+	__device__ __host__ BoundingBox(): mn(make_float3(INF, INF, INF)), mx(make_float3(-INF, -INF, -INF)) {};
 	__device__ __host__ BoundingBox(
 		const Vector &mn_,
 		const Vector &mx_
@@ -164,25 +111,30 @@ public:
 		mx(mx_) {}
 
 	__device__ __host__ inline void update(const Vector &vec) {
-		mn[0] = min(mn[0], vec[0]);
-		mn[1] = min(mn[1], vec[1]);
-		mn[2] = min(mn[2], vec[2]);
-		mx[0] = max(mx[0], vec[0]);
-		mx[1] = max(mx[1], vec[1]);
-		mx[2] = max(mx[2], vec[2]);
+		mn = fminf(mn, vec);
+		mx = fmaxf(mx, vec);
+		// mn.x = min(mn.x, vec.x);
+		// mn.y = min(mn.y, vec.y);
+		// mn.z = min(mn.z, vec.z);
+		// mx.x = max(mx.x, vec.x);
+		// mx.y = max(mx.y, vec.y);
+		// mx.z = max(mx.z, vec.z);
 	}
 
 	__device__ __host__ inline bool intersect(const Ray &r, float &t) {
-		float t0x = (mn[0] - r.O[0]) / r.u[0];
-		float t0y = (mn[1] - r.O[1]) / r.u[1];
-		float t0z = (mn[2] - r.O[2]) / r.u[2];
-		float t1x = (mx[0] - r.O[0]) / r.u[0];
-		float t1y = (mx[1] - r.O[1]) / r.u[1];
-		float t1z = (mx[2] - r.O[2]) / r.u[2];
-		if (t0x > t1x) swap(t0x, t1x);
-		if (t0y > t1y) swap(t0y, t1y);
-		if (t0z > t1z) swap(t0z, t1z);
-		return min(t1x, min(t1y, t1z)) > max(t0x, max(t0y, t0z));
+		float3 t0 = (mn - r.O) / r.u;
+		float3 t1 = (mx - r.O) / r.u;
+		return min(max(t0.x, t1.x), min(max(t0.y, t1.y), max(t0.z, t1.z))) > max(min(t0.x, t1.x), max(min(t0.y, t1.y), min(t0.z, t1.z)));
+		// float t0x = (mn.x - r.O.x) / r.u.x;
+		// float t0y = (mn.y - r.O.y) / r.u.y;
+		// float t0z = (mn.z - r.O.z) / r.u.z;
+		// float t1x = (mx.x - r.O.x) / r.u.x;
+		// float t1y = (mx.y - r.O.y) / r.u.y;
+		// float t1z = (mx.z - r.O.z) / r.u.z;
+		// if (t0x > t1x) swap(t0x, t1x);
+		// if (t0y > t1y) swap(t0y, t1y);
+		// if (t0z > t1z) swap(t0z, t1z);
+		// return min(t1x, min(t1y, t1z)) > max(t0x, max(t0y, t0z));
 	}
 };
 
@@ -225,12 +177,12 @@ public:
 		#define BUILD_BVH(var, idx) var.left = arr_bvh[(idx) * 10 + 0],\
 									var.right = arr_bvh[(idx) * 10 + 1],\
 									var.bb = BoundingBox(\
-										Vector(\
+										make_float3(\
 											arr_bvh[(idx) * 10 + 2],\
 											arr_bvh[(idx) * 10 + 3],\
 											arr_bvh[(idx) * 10 + 4]\
 										),\
-										Vector(\
+										make_float3(\
 											arr_bvh[(idx) * 10 + 5],\
 											arr_bvh[(idx) * 10 + 6],\
 											arr_bvh[(idx) * 10 + 7]\
@@ -281,7 +233,7 @@ public:
 				} 
 			}
 		}
-		N.normalize();
+		N = normalize(N);
 		t = t_min;
 		return t_min != INF;
 	}
@@ -331,28 +283,29 @@ public:
 				Vector vec;
 
 				Vector col;
-				if (sscanf(line, "v %f %f %f %f %f %f\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
-					col[0] = std::min(1.f, std::max(0.f, col[0]));
-					col[1] = std::min(1.f, std::max(0.f, col[1]));
-					col[2] = std::min(1.f, std::max(0.f, col[2]));
+				if (sscanf(line, "v %f %f %f %f %f %f\n", &vec.x, &vec.y, &vec.z, &col.x, &col.y, &col.z) == 6) {
+					col = fminf(make_float3(1.f), fmaxf(make_float3(0.f), col));
+					// col.x = std::min(1.f, std::max(0.f, col.x));
+					// col.y = std::min(1.f, std::max(0.f, col.y));
+					// col.z = std::min(1.f, std::max(0.f, col.z));
 
 					vertices.push_back(vec);
 					vertexcolors.push_back(col);
 
 				} else {
-					sscanf(line, "v %f %f %f\n", &vec[0], &vec[1], &vec[2]);
-					vec = vec*0.8+Vector(0, -10, 0);
+					sscanf(line, "v %f %f %f\n", &vec.x, &vec.y, &vec.z);
+					vec = vec*0.8+make_float3(0, -10, 0);
 					vertices.push_back(vec);
 				}
 			}
 			if (line[0] == 'v' && line[1] == 'n') {
 				Vector vec;
-				sscanf(line, "vn %f %f %f\n", &vec[0], &vec[1], &vec[2]);
+				sscanf(line, "vn %f %f %f\n", &vec.x, &vec.y, &vec.z);
 				normals.push_back(vec);
 			}
 			if (line[0] == 'v' && line[1] == 't') {
 				Vector vec;
-				sscanf(line, "vt %f %f\n", &vec[0], &vec[1]);
+				sscanf(line, "vt %f %f\n", &vec.x, &vec.y);
 				uvs.push_back(vec);
 			}
 			if (line[0] == 'f') {
@@ -476,8 +429,6 @@ public:
 	}
 
 	void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
-		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
-		// printf("%d %d\n", triangle_start, triangle_end);
 		n_bvhs++;
 		cur->triangle_start = triangle_start;
 		cur->triangle_end = triangle_end;
@@ -487,17 +438,31 @@ public:
 
 		Vector diag = cur->bb.mx - cur->bb.mn;
 		int max_axis;
-		if (diag[0] >= diag[1] && diag[0] >= diag[2])
+		if (diag.x >= diag.y && diag.x >= diag.z)
 			max_axis = 0;
-		else if (diag[1] >= diag[0] && diag[1] >= diag[2])
+		else if (diag.y >= diag.x && diag.y >= diag.z)
 			max_axis = 1;
 		else
 			max_axis = 2;
 
 		int pivot = triangle_start;
-		float split = (cur->bb.mn[max_axis] + cur->bb.mx[max_axis]) / 2;
+		float split;
+		if (max_axis == 0) {
+			split = (cur->bb.mn.x + cur->bb.mx.x) / 2;
+		} else if (max_axis == 1) {
+			split = (cur->bb.mn.y + cur->bb.mx.y) / 2;
+		} else {
+			split = (cur->bb.mn.z + cur->bb.mx.z) / 2;
+		}
 		for (int i = triangle_start; i < triangle_end; i++) {
-			float cen = (vertices[indices[i].vtxi][max_axis] + vertices[indices[i].vtxj][max_axis] + vertices[indices[i].vtxk][max_axis]) / 3;
+			float cen;
+			if (max_axis == 0) {
+				cen = (vertices[indices[i].vtxi].x + vertices[indices[i].vtxj].x + vertices[indices[i].vtxk].x) / 3;
+			} else if (max_axis == 1) {
+				cen = (vertices[indices[i].vtxi].y + vertices[indices[i].vtxj].y + vertices[indices[i].vtxk].y) / 3;
+			} else {
+				cen = (vertices[indices[i].vtxi].z + vertices[indices[i].vtxj].z + vertices[indices[i].vtxk].z) / 3;
+			}
 			if (cen < split) {
 				swap(indices[i], indices[pivot]);
 				pivot++;
@@ -514,12 +479,12 @@ public:
 	}
 
 	void bvhTreeToArray(BVH* cur, float *arr_bvh, size_t &arr_size, size_t arr_idx = 0) {
-		arr_bvh[arr_idx * 10 + 2] = cur->bb.mn[0];
-		arr_bvh[arr_idx * 10 + 3] = cur->bb.mn[1];
-		arr_bvh[arr_idx * 10 + 4] = cur->bb.mn[2];
-		arr_bvh[arr_idx * 10 + 5] = cur->bb.mx[0];
-		arr_bvh[arr_idx * 10 + 6] = cur->bb.mx[1];
-		arr_bvh[arr_idx * 10 + 7] = cur->bb.mx[2];
+		arr_bvh[arr_idx * 10 + 2] = cur->bb.mn.x;
+		arr_bvh[arr_idx * 10 + 3] = cur->bb.mn.y;
+		arr_bvh[arr_idx * 10 + 4] = cur->bb.mn.z;
+		arr_bvh[arr_idx * 10 + 5] = cur->bb.mx.x;
+		arr_bvh[arr_idx * 10 + 6] = cur->bb.mx.y;
+		arr_bvh[arr_idx * 10 + 7] = cur->bb.mx.z;
 		arr_bvh[arr_idx * 10 + 8] = cur->triangle_start;
 		arr_bvh[arr_idx * 10 + 9] = cur->triangle_end;
 
@@ -565,14 +530,13 @@ public:
 
 	__device__ Vector getColorIterative(const Ray& input_ray, int max_ray_depth) {
 		int types[MAX_RAY_DEPTH];
-		Vector direct_colors[MAX_RAY_DEPTH];
-		Vector indirect_albedos[MAX_RAY_DEPTH];
+		Vector direct_colors[MAX_RAY_DEPTH] = {};
+		Vector indirect_albedos[MAX_RAY_DEPTH] = {};
 		Ray ray = input_ray;
 		for (int ray_depth = 0; ray_depth < max_ray_depth; ray_depth++) {
 			Vector P, N;
 			int sphere_id = -1;
 			bool inter = intersect_all(ray, P, N, sphere_id);
-			Vector color;
 			if (inter) {
 				if (objects[sphere_id]->mirror) {
 					// Reflection
@@ -622,15 +586,15 @@ public:
 					Vector N_prime;
 					bool _ = intersect_all(Ray(P_adjusted, NORMED_VEC(L - P_adjusted)), P_prime, N_prime, sphere_id_shadow);
 					
-					if ((P_prime - P_adjusted).norm2() <= (L - P_adjusted).norm2()) {
+					if (NORM2(P_prime - P_adjusted) <= NORM2(L - P_adjusted)) {
 						// Is shadow
-						direct_colors[ray_depth] = Vector(0, 0, 0);
+						direct_colors[ray_depth] = make_float3(0, 0, 0);
 					} else {
 						// Get direct color
 						Geometry* S = objects[sphere_id];
 						Vector wlight = L - P;
-						wlight.normalize();
-						float l = intensity / (4 * PI * (L - P).norm2()) * max(dot(N, wlight), 0.);
+						wlight = normalize(wlight);
+						float l = intensity / (4 * PI * NORM2(L - P)) * max(dot(N, wlight), 0.);
 						direct_colors[ray_depth] = l * S->albedo / PI;
 					}
 					// Get indirect color by launching ray
@@ -641,12 +605,12 @@ public:
 					float y = sin(2 * PI * r1) * sqrt(1 - r2);
 					float z = sqrt(r2);
 					Vector T1;
-					if (abs(N[1]) != 0 && abs(N[0]) != 0) {
-						T1 = Vector(-N[1], N[0], 0);
+					if (abs(N.y) != 0 && abs(N.x) != 0) {
+						T1 = make_float3(-N.y, N.x, 0);
 					} else {
-						T1 = Vector(-N[2], 0, N[0]);
+						T1 = make_float3(-N.z, 0, N.x);
 					}
-					T1.normalize();
+					T1 = normalize(T1);
 					Vector T2 = cross(N, T1);
 					Vector random_direction = x * T1 + y * T2 + z * N;
 					ray = Ray(P_adjusted, random_direction);
@@ -655,7 +619,7 @@ public:
 				}
 			}
 		}
-		Vector ans_color;
+		Vector ans_color = make_float3(0);
 		for (int i = max_ray_depth - 1; i >= 0; i--) {
 			if (types[i]) {
 				// Hits a diffusion object
@@ -672,30 +636,10 @@ public:
 	curandState* rand_states;
 };
 
-// __global__ void KernelInit(TriangleMesh *cat, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, cudaTextureObject_t bvh) {
-// 	auto id = threadIdx.x + blockIdx.x * blockDim.x;
-
-// 	if (!id) {
-// 		cat->albedo = Vector(0.25, 0.25, 0.25);
-// 	 	cat->indices_size = indices_size;
-// 		cat->indices = indices;
-// 		cat->vertices_size = vertices_size;
-// 		cat->vertices = vertices;
-// 		// printf("%d %d\n", indices_size, vertices_size);
-// 		// cat->normals_size;
-// 		// cat->normals;
-// 		// cat->uvs_size;
-// 		// cat->uvs;
-// 		// cat->vertexcolors_size;
-// 		// cat->vertexcolors;
-// 		cat->bvh = bvh;
-// 	}
-// }
-
-__global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
-	extern __shared__ float shared_memory[];
+__global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
+	extern __shared__ char shared_memory[];
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-	float *shared_colors = shared_memory;
+	char *shared_colors = shared_memory;
 	Sphere *shared_objects = (Sphere *)&shared_colors[blockDim.x * 3];
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
 	Scene *shared_scene = (Scene *)&shared_rand_states[blockDim.x];
@@ -703,18 +647,18 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 
 	int idx = (int)threadIdx.x;
 	if (idx == 7) {
-		shared_scene->L = Vector(-10., 20., 40.);
-		shared_scene->objects_size = 7;
+		shared_scene->L = make_float3(-10., 20., 40.);
+		shared_scene->objects_size = 6;
 		shared_scene->intensity = 3e10;
 	} else if (idx == 0) {
-		Sphere tmp = Sphere(Vector(0, 0, -1000), 940, Vector(0., 1., 0.));
+		Sphere tmp = Sphere(make_float3(0, 0, -1000), 940, make_float3(0., 1., 0.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
 		shared_scene->rand_states = shared_rand_states;
 	} else if (idx == 1) {
 		TriangleMesh mesh = TriangleMesh();
-		mesh.albedo = Vector(0.25, 0.25, 0.25);
+		mesh.albedo = make_float3(0.25, 0.25, 0.25);
 		mesh.vertices = vertices;
 		mesh.indices = indices;
 		mesh.vertices_size = vertices_size;
@@ -724,27 +668,27 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 		shared_mesh->id = idx;
 		shared_scene->objects[idx] = (Geometry *)shared_mesh;
 	} else if (idx == 2) {
-		Sphere tmp = Sphere(Vector(0, -1000, 0), 990, Vector(0., 0., 1.));
+		Sphere tmp = Sphere(make_float3(0, -1000, 0), 990, make_float3(0., 0., 1.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
 	} else if (idx == 3) {
-		Sphere tmp = Sphere(Vector(0, 1000, 0), 940, Vector(1., 0., 0.));
+		Sphere tmp = Sphere(make_float3(0, 1000, 0), 940, make_float3(1., 0., 0.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
 	} else if (idx == 4) {
-		Sphere tmp = Sphere(Vector(-1000, 0, 0), 940, Vector(0., 1., 1.));
+		Sphere tmp = Sphere(make_float3(-1000, 0, 0), 940, make_float3(0., 1., 1.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
 	} else if (idx == 5) {
-		Sphere tmp = Sphere(Vector(1000, 0, 0), 940, Vector(1., 1., 0.));
+		Sphere tmp = Sphere(make_float3(1000, 0, 0), 940, make_float3(1., 1., 0.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
 	} else if (idx == 6) {
-		Sphere tmp = Sphere(Vector(0, 0, 1000), 940, Vector(1., 0., 1.));
+		Sphere tmp = Sphere(make_float3(0, 0, 1000), 940, make_float3(1., 0., 1.));
 		memcpy(&shared_objects[idx], &tmp, sizeof(Sphere));
 		shared_objects[idx].id = idx;
 		shared_scene->objects[idx] = (Geometry *)&shared_objects[idx];
@@ -752,15 +696,15 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 	// shared_objects[shared_scene->objects_size] = (Geometry) cat;
 	// shared_objects[shared_scene->objects_size].id= shared_scene->objects_size;
 	// ++shared_scene->objects_size;
-	// shared_objects[shared_scene->objects_size] = Geometry(Vector(-20, 0, 0), 10, Vector(0., 0., 0.), 1);
+	// shared_objects[shared_scene->objects_size] = Geometry(make_float3(-20, 0, 0), 10, make_float3(0., 0., 0.), 1);
 	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
 	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
 	// ++shared_scene->objects_size;
-	// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 9, Vector(0., 0., 0.), 0, 1, 1.5);
+	// shared_objects[shared_scene->objects_size] = Geometry(make_float3(20, 0, 0), 9, make_float3(0., 0., 0.), 0, 1, 1.5);
 	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
 	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
 	// ++shared_scene->objects_size;
-	// shared_objects[shared_scene->objects_size] = Geometry(Vector(20, 0, 0), 10, Vector(0., 0., 0.), 0, 1.5, 1);
+	// shared_objects[shared_scene->objects_size] = Geometry(make_float3(20, 0, 0), 10, make_float3(0., 0., 0.), 0, 1.5, 1);
 	// shared_objects[shared_scene->objects_size].id = shared_scene->objects_size;
 	// shared_scene->objects[shared_scene->objects_size] = &shared_objects[shared_scene->objects_size];
 	// ++shared_scene->objects_size;
@@ -768,23 +712,28 @@ __global__ void KernelLaunch(float *colors, int W, int H, int num_rays, int num_
 	__syncthreads();
 	
 	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
-    int i = (index / num_rays) / W, j = (index / num_rays) % W;
-	Vector C(0, 0, 55);
+    int i = index / W, j = index % W;
+	Vector C = make_float3(0, 0, 55);
 	float alpha = PI/3;
 	float z = -W / (2 * tan(alpha/2));
     unsigned int seed = threadIdx.x;
-    Vector u_center((float)j - (float)W / 2 + 0.5, (float)H / 2 - i - 0.5, z);
+    Vector u_center = make_float3((float)j - (float)W / 2 + 0.5, (float)H / 2 - i - 0.5, z);
 	// Box-muller for anti-aliasing
 	float sigma = 0.2;
-	float r1 = uniform(shared_scene->rand_states, seed);
-	float r2 = uniform(shared_scene->rand_states, seed);
-	Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
-	u.normalize();
-	Ray r(C, u);
-	Vector color = shared_scene->getColorIterative(r, num_bounce);
-	shared_colors[threadIdx.x * 3 + 0] = color[0];
-    shared_colors[threadIdx.x * 3 + 1] = color[1];
-    shared_colors[threadIdx.x * 3 + 2] = color[2];
+	Vector color_out = make_float3(0);
+	for (int t = 0; t < num_rays; ++t) {
+		float r1 = uniform(shared_scene->rand_states, seed);
+		float r2 = uniform(shared_scene->rand_states, seed);
+		Vector u = u_center + make_float3(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
+		u = normalize(u);
+		Ray r(C, u);
+		Vector color = shared_scene->getColorIterative(r, num_bounce);
+		color_out = color_out + color;
+	}
+	color_out = color_out / num_rays;
+	shared_colors[threadIdx.x * 3 + 0] = min(std::pow(color_out.x, 1./2.2), 255.);
+    shared_colors[threadIdx.x * 3 + 1] = min(std::pow(color_out.y, 1./2.2), 255.);
+    shared_colors[threadIdx.x * 3 + 2] = min(std::pow(color_out.z, 1./2.2), 255.);
 	__syncthreads();
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
@@ -803,23 +752,17 @@ int main(int argc, char **argv) {
 	auto start_time = std::chrono::system_clock::now();
 
 	const int num_rays = atoi(argv[1]), num_bounce = atoi(argv[2]);
-	int W = 512;
-	int H = 512;
-	int colors_size = sizeof(float) * H * W * 3 * num_rays;
+	const int W = 512;
+	const int H = 512;
 	const int BLOCK_DIM = 128;
-	int GRID_DIM = W * H * num_rays / BLOCK_DIM;
-	
-	Scene *d_s;
-	float *h_colors, *d_colors;
-    char *image;
-	h_colors = new float[H * W * 3 * num_rays];
-    image = new char[H * W * 3];
+	const int GRID_DIM = H * W / BLOCK_DIM;
+
+    int image_size = H * W * 3;
+	char *image = new char[image_size];
+	char *d_colors;
+    gpuErrchk( cudaMalloc((void**)&d_colors, sizeof(char) * image_size) );
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
-	
-	// Malloc & transfer to GPU
-    gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
-    gpuErrchk( cudaMalloc((void**)&d_colors, colors_size) );
 
 	/*
 		Instantiate cat object
@@ -827,10 +770,10 @@ int main(int argc, char **argv) {
 	TriangleMeshHost* mesh_ptr = new TriangleMeshHost(); // cat
 	const char *path = "cadnav.com_model/Models_F0202A090/cat.obj";
 	mesh_ptr->readOBJ(path);
-	mesh_ptr->rescale(0.6f, Vector(0.f, -4.f, 0.f));
+	mesh_ptr->rescale(0.6f, make_float3(0.f, -4.f, 0.f));
 	
 	/*
-		Build, convert, and transfer BVH tree to GPU texture memory
+		Build, convert, and transfer BVH tree to GPU
 	*/
 	mesh_ptr->bvh.bb = mesh_ptr->compute_bbox(0, mesh_ptr->indices.size());
 	mesh_ptr->buildBVH(&(mesh_ptr->bvh), 0, mesh_ptr->indices.size());
@@ -850,18 +793,11 @@ int main(int argc, char **argv) {
     gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
     gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
-	
-	// TriangleMesh *d_mesh = NULL;
-	// gpuErrchk( cudaMalloc((void**)&d_mesh, sizeof(TriangleMesh)) );
-
-	// KernelInit<<<1, 1>>>(d_mesh, d_indices, mesh_ptr->indices.size(), d_vertices, mesh_ptr->vertices.size(), bvh);
-	// gpuErrchk( cudaPeekAtLastError() );
-    // gpuErrchk( cudaDeviceSynchronize() );
 
     KernelLaunch<<<
 		GRID_DIM,
 		BLOCK_DIM,
-		sizeof(float) * BLOCK_DIM * 3
+		sizeof(char) * BLOCK_DIM * 3
 		+ sizeof(Geometry) * 10
 		+ sizeof(TriangleMesh)
 		+ sizeof(curandState) * BLOCK_DIM
@@ -886,31 +822,13 @@ int main(int argc, char **argv) {
 		Clean memory
 		Deduce final result
 	*/
-    gpuErrchk( cudaMemcpy(h_colors, d_colors, colors_size, cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaFree(d_s) );
+    gpuErrchk( cudaMemcpy(image, d_colors, sizeof(char) * image_size, cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaFree(d_colors) );
-    gpuErrchk( cudaFree(d_indices) );
+	gpuErrchk( cudaFree(d_indices) );
     gpuErrchk( cudaFree(d_vertices) );
 	gpuErrchk( cudaFree(d_arr_bvh) );
 	delete[] arr_bvh;
-	for (int i = 0; i < H; ++i) {
-		for (int j = 0; j < W; ++j) {
-			Vector colors_sum;
-			for (int t = 0; t < num_rays; ++t) {
-				colors_sum = colors_sum + Vector(
-					h_colors[((i * W + j) * num_rays + t) * 3 + 0],
-					h_colors[((i * W + j) * num_rays + t) * 3 + 1],
-					h_colors[((i * W + j) * num_rays + t) * 3 + 2]
-				);
-			}
-			Vector colors_avg = colors_sum / num_rays;
-			image[(i * W + j) * 3 + 0] = min(std::pow(colors_avg[0], 1./2.2), 255.);
-			image[(i * W + j) * 3 + 1] = min(std::pow(colors_avg[1], 1./2.2), 255.);
-			image[(i * W + j) * 3 + 2] = min(std::pow(colors_avg[2], 1./2.2), 255.);
-		}
-	}
-	delete h_colors;
-	stbi_write_png("image_shared_memory.png", W, H, 3, &image[0], 0);
+	stbi_write_png("image_optimized.png", W, H, 3, image, 0);
     delete image;
 
 	/*

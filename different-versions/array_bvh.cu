@@ -7,10 +7,10 @@
 #include <curand_kernel.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../stb_image_write.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../stb_image.h"
 
 #define SQR(X) ((X)*(X))
 #define NORMED_VEC(X) ((X) / (X).norm())
