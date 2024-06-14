@@ -15,7 +15,7 @@
 #define SQR(X) ((X)*(X))
 #define NORMED_VEC(X) ((X) / (X).norm())
 #ifndef PI
-    #define PI 3.14159265358979323846
+	#define PI 3.14159265358979323846
 #endif
 #define PRINT_VEC(v) (printf("%s: (%f %f %f)\n", #v, (v)[0], (v)[1], (v)[2]))
 #define INF (1e9+9)
@@ -23,17 +23,16 @@
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
-   if (code != cudaSuccess) 
-   {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
+   if (code != cudaSuccess) {
+		fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+		if (abort) exit(code);
    }
 }
 
 __device__ inline float uniform(curandState *rand_states, unsigned int tid) {
-    curandState local_state = rand_states[tid];
-    float RANDOM = curand_uniform( &local_state );
-    rand_states[tid] = local_state;
+	curandState local_state = rand_states[tid];
+	float RANDOM = curand_uniform( &local_state );
+	rand_states[tid] = local_state;
 	return RANDOM;
 }
 
@@ -119,8 +118,8 @@ class Sphere: public Geometry {
 public:
 	__device__ Sphere(const Vector &C, float R, const Vector& albedo, bool mirror = 0, float in_refraction_index = 1., float out_refraction_index = 1.) : 
 	C(C), R(R), Geometry(albedo, id, mirror, in_refraction_index, out_refraction_index) {};
-    Vector C;
-    float R;
+	Vector C;
+	float R;
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
 		float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
 		if (delta < 0)
@@ -141,10 +140,10 @@ public:
 class TriangleIndices {
 public:
 	__device__ __host__ TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {}
-    int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
-    int uvi, uvj, uvk;    // indices within the uv coordinates array
-    int ni, nj, nk;       // indices within the normals array
-    int group;            // face group
+	int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
+	int uvi, uvj, uvk;	// indices within the uv coordinates array
+	int ni, nj, nk;	   // indices within the normals array
+	int group;			// face group
 };
 
 template <typename T> __device__ __host__ void swap ( T& a, T& b ) {
@@ -295,11 +294,11 @@ class TriangleMeshHost {
 public:
  	~TriangleMeshHost() {}
 	TriangleMeshHost() {};
-    void rescale(float scale, Vector offset) {
+	void rescale(float scale, Vector offset) {
 		for (int i = 0; i < vertices.size(); i++) {
 			vertices[i] = vertices[i] * scale + offset;
 		}
-    }
+	}
 
 	void readOBJ(const char* obj) {
 
@@ -541,8 +540,8 @@ public:
 		float t_min = INF;
 		int id_min = -1;
 		Vector N_min;
-        for (int i = 0; i < objects_size; i++) {
-            Geometry* object_ptr = objects[i];
+		for (int i = 0; i < objects_size; i++) {
+			Geometry* object_ptr = objects[i];
 			float t;
 			float id = object_ptr->id;
 			Vector N_tmp;
@@ -662,7 +661,7 @@ public:
 	}
 
 	Geometry* objects[10];
-    int objects_size = 0;
+	int objects_size = 0;
 	float intensity = 3e10;
 	Vector L;
 	curandState* rand_states;
@@ -670,7 +669,7 @@ public:
 
 __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_bounce, TriangleIndices *indices, int indices_size, Vector *vertices, int vertices_size, float *arr_bvh) {
 	extern __shared__ char shared_memory[];
-    size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	char *shared_colors = shared_memory;
 	Sphere *shared_objects = (Sphere *)&shared_colors[blockDim.x * 3];
 	curandState *shared_rand_states = (curandState *)&shared_objects[10];
@@ -744,12 +743,12 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 	__syncthreads();
 	
 	curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
-    int i = index / W, j = index % W;
+	int i = index / W, j = index % W;
 	Vector C(0, 0, 55);
 	float alpha = PI/3;
 	float z = -W / (2 * tan(alpha/2));
-    unsigned int seed = threadIdx.x;
-    Vector u_center((float)j - (float)W / 2 + 0.5, (float)H / 2 - i - 0.5, z);
+	unsigned int seed = threadIdx.x;
+	Vector u_center((float)j - (float)W / 2 + 0.5, (float)H / 2 - i - 0.5, z);
 	// Box-muller for anti-aliasing
 	float sigma = 0.2;
 	Vector color_out;
@@ -764,8 +763,8 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 	}
 	color_out = color_out / num_rays;
 	shared_colors[threadIdx.x * 3 + 0] = min(powf(color_out[0], 1./2.2), 255.);
-    shared_colors[threadIdx.x * 3 + 1] = min(powf(color_out[1], 1./2.2), 255.);
-    shared_colors[threadIdx.x * 3 + 2] = min(powf(color_out[2], 1./2.2), 255.);
+	shared_colors[threadIdx.x * 3 + 1] = min(powf(color_out[1], 1./2.2), 255.);
+	shared_colors[threadIdx.x * 3 + 2] = min(powf(color_out[2], 1./2.2), 255.);
 	__syncthreads();
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];
@@ -773,7 +772,7 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
+	if (argc != 3) {
 		std::cout << "Invalid number of arguments!\nThe first argument is number of rays and the second argument is number of bounces.\n";
 		return 0;
 	}
@@ -789,10 +788,10 @@ int main(int argc, char **argv) {
 	const int BLOCK_DIM = 128;
 	const int GRID_DIM = H * W / BLOCK_DIM;
 
-    int image_size = H * W * 3;
+	int image_size = H * W * 3;
 	char *image = new char[image_size];
 	char *d_colors;
-    gpuErrchk( cudaMalloc((void**)&d_colors, sizeof(char) * image_size) );
+	gpuErrchk( cudaMalloc((void**)&d_colors, sizeof(char) * image_size) );
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
 
@@ -821,12 +820,12 @@ int main(int argc, char **argv) {
 	*/
 	TriangleIndices* d_indices;
 	Vector* d_vertices;
-    gpuErrchk( cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)) );
-    gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
-    gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
+	gpuErrchk( cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)) );
+	gpuErrchk( cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice) );
+	gpuErrchk( cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)) );
+	gpuErrchk( cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice) );
 
-    KernelLaunch<<<
+	KernelLaunch<<<
 		GRID_DIM,
 		BLOCK_DIM,
 		sizeof(char) * BLOCK_DIM * 3
@@ -847,39 +846,39 @@ int main(int argc, char **argv) {
 		d_arr_bvh
 	);
 	gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+	gpuErrchk( cudaDeviceSynchronize() );
 
 	/*
 		Transfer result back from GPU
 		Clean memory
 		Deduce final result
 	*/
-    gpuErrchk( cudaMemcpy(image, d_colors, sizeof(char) * image_size, cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaFree(d_colors) );
+	gpuErrchk( cudaMemcpy(image, d_colors, sizeof(char) * image_size, cudaMemcpyDeviceToHost) );
+	gpuErrchk( cudaFree(d_colors) );
 	gpuErrchk( cudaFree(d_indices) );
-    gpuErrchk( cudaFree(d_vertices) );
+	gpuErrchk( cudaFree(d_vertices) );
 	gpuErrchk( cudaFree(d_arr_bvh) );
 	delete[] arr_bvh;
 	stbi_write_png("image_optimized.png", W, H, 3, image, 0);
-    delete image;
+	delete image;
 
 	/*
 		Inspect GPU architecture
 	*/
 	// int device;
-    // cudaGetDevice(&device);
-    // cudaDeviceProp props;
-    // cudaGetDeviceProperties(&props, device);
-    // std::cout << "Device name: " << props.name << std::endl;
-    // std::cout << "Shared memory per block: " << props.sharedMemPerBlock << " bytes" << std::endl;
-    // std::cout << "Shared memory per multiprocessor: " << props.sharedMemPerMultiprocessor << " bytes" << std::endl;
+	// cudaGetDevice(&device);
+	// cudaDeviceProp props;
+	// cudaGetDeviceProperties(&props, device);
+	// std::cout << "Device name: " << props.name << std::endl;
+	// std::cout << "Shared memory per block: " << props.sharedMemPerBlock << " bytes" << std::endl;
+	// std::cout << "Shared memory per multiprocessor: " << props.sharedMemPerMultiprocessor << " bytes" << std::endl;
 
 	/*
 		Measure runtime
 	*/
-    auto end_time = std::chrono::system_clock::now();
-    std::chrono::duration<float> run_time = end_time - start_time;
-    std::cout << "Rendering time: " << run_time.count() << " s\n";
+	auto end_time = std::chrono::system_clock::now();
+	std::chrono::duration<float> run_time = end_time - start_time;
+	std::cout << "Rendering time: " << run_time.count() << " s\n";
 
 	return 0;
 }

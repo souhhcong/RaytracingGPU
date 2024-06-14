@@ -15,7 +15,7 @@
 #define SQR(X) ((X)*(X))
 #define NORMED_VEC(X) ((X) / (X).norm())
 #ifndef PI
-    #define PI 3.14159265358979323846
+	#define PI 3.14159265358979323846
 #endif
 #define PRINT_VEC(v) (printf("%s: (%f %f %f)\n", #v, (v)[0], (v)[1], (v)[2]))
 #define INF (1e9+9)
@@ -24,17 +24,16 @@
 
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true) {
-   if (code != cudaSuccess) 
-   {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
+   if (code != cudaSuccess) {
+		fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+		if (abort) exit(code);
    }
 }
 
 __device__ inline float uniform(curandState *rand_states, unsigned int tid) {
-    curandState local_state = rand_states[tid];
+	curandState local_state = rand_states[tid];
  	float RANDOM = curand_uniform( &local_state );
-    rand_states[tid] = local_state;
+	rand_states[tid] = local_state;
 	return RANDOM;
 }
 
@@ -118,14 +117,14 @@ public:
 	__host__ __device__ Sphere() {};
 	__device__ Sphere(const Vector &C, float R, const Vector& albedo, bool mirror = 0, float in_refraction_index = 1., float out_refraction_index = 1.) : 
 	C(C), R(R), Geometry(albedo, id, mirror, in_refraction_index, out_refraction_index) {};
-    Vector C;
- float R;
+	Vector C;
+	float R;
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
-	 float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
+		float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
 		if (delta < 0)
 			return 0;
-	 float t1 = dot(r.u, C - r.O) - sqrtf(delta); // first intersection
-	 float t2 = dot(r.u, C - r.O) + sqrtf(delta); // second intersection
+		float t1 = dot(r.u, C - r.O) - sqrtf(delta); // first intersection
+		float t2 = dot(r.u, C - r.O) + sqrtf(delta); // second intersection
 		if (t2 < 0)
 			return 0;
 		t = t1 < 0 ? t2 : t1;
@@ -140,10 +139,10 @@ public:
 class TriangleIndices {
 public:
 	__device__ __host__ TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {};
-    int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
-    int uvi, uvj, uvk;    // indices within the uv coordinates array
-    int ni, nj, nk;       // indices within the normals array
-    int group;            // face group
+		int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
+		int uvi, uvj, uvk;		// indices within the uv coordinates array
+		int ni, nj, nk;		   // indices within the normals array
+		int group;						// face group
 };
 
 template <typename T> __device__ __host__ void swap ( T& a, T& b ) {
@@ -339,30 +338,30 @@ public:
 };
 
 __device__ Vector rotate(const Vector &v, const float *R) {
-    return Vector(
-        R[0] * v[0] + R[1] * v[1] + R[2] * v[2],
-        R[3] * v[0] + R[4] * v[1] + R[5] * v[2],
-        R[6] * v[0] + R[7] * v[1] + R[8] * v[2]
-    );
+	return Vector(
+		R[0] * v[0] + R[1] * v[1] + R[2] * v[2],
+		R[3] * v[0] + R[4] * v[1] + R[5] * v[2],
+		R[6] * v[0] + R[7] * v[1] + R[8] * v[2]
+	);
 }
 
 __global__ void transform(Vector *vertices, int vertices_size, Vector *normals, int normals_size, Vector translation, const float *rotation_matrix) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < vertices_size) {
-        // Transform the vertex
-        vertices[idx] = rotate(vertices[idx], rotation_matrix);
-        vertices[idx][0] += translation[0];
-        vertices[idx][1] += translation[1];
-        vertices[idx][2] += translation[2];
-    }
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idx < vertices_size) {
+		// Transform the vertex
+		vertices[idx] = rotate(vertices[idx], rotation_matrix);
+		vertices[idx][0] += translation[0];
+		vertices[idx][1] += translation[1];
+		vertices[idx][2] += translation[2];
+	}
 
-    if (idx < normals_size) {
-        // Transform the normal
-        normals[idx] = rotate(normals[idx], rotation_matrix);
+	if (idx < normals_size) {
+		// Transform the normal
+		normals[idx] = rotate(normals[idx], rotation_matrix);
 		normals[idx][0] += translation[0];
-        normals[idx][1] += translation[1];
-        normals[idx][2] += translation[2];
-    }
+		normals[idx][1] += translation[1];
+		normals[idx][2] += translation[2];
+	}
 }
 
 class TriangleMeshHost {
@@ -378,321 +377,321 @@ public:
 	
 void readOBJ(const char *obj) {
 
-    char matfile[255];
-    char grp[255];
+	char matfile[255];
+	char grp[255];
 
-    FILE *f;
-    f = fopen(obj, "r");
-    int curGroup = -1;
-    while (!feof(f)) {
-        char line[255];
-        if (!fgets(line, 255, f))
-            break;
+	FILE *f;
+	f = fopen(obj, "r");
+	int curGroup = -1;
+	while (!feof(f)) {
+		char line[255];
+		if (!fgets(line, 255, f))
+				break;
 
-        std::string linetrim(line);
-        linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
-        strcpy(line, linetrim.c_str());
+		std::string linetrim(line);
+		linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
+		strcpy(line, linetrim.c_str());
 
-        if (line[0] == 'u' && line[1] == 's') {
-            sscanf(line, "usemtl %[^\n]\n", grp);
-            curGroup++;
-        }
+		if (line[0] == 'u' && line[1] == 's') {
+				sscanf(line, "usemtl %[^\n]\n", grp);
+				curGroup++;
+		}
 
-        if (line[0] == 'v' && line[1] == ' ') {
-            Vector vec;
+		if (line[0] == 'v' && line[1] == ' ') {
+				Vector vec;
 
-            Vector col;
-            if (sscanf(line, "v %f %f %f %f %f %f\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
-                col[0] = std::min(1.f, std::max(0.f, col[0]));
-                col[1] = std::min(1.f, std::max(0.f, col[1]));
-                col[2] = std::min(1.f, std::max(0.f, col[2]));
+				Vector col;
+				if (sscanf(line, "v %f %f %f %f %f %f\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
+						col[0] = std::min(1.f, std::max(0.f, col[0]));
+						col[1] = std::min(1.f, std::max(0.f, col[1]));
+						col[2] = std::min(1.f, std::max(0.f, col[2]));
 
-                vertices.push_back(vec);
-				vec = vec*0.8+Vector(0, -10, 0);
-                vertexcolors.push_back(col);
-            } else {
-                sscanf(line, "v %f %f %f\n", &vec[0], &vec[1], &vec[2]);
-				vec = vec*0.8+Vector(0, -10, 0);
-                vertices.push_back(vec);
-            }
-        }
-        if (line[0] == 'v' && line[1] == 'n') {
-            Vector vec;
-            sscanf(line, "vn %f %f %f\n", &vec[0], &vec[1], &vec[2]);
-            normals.push_back(vec);
-        }
-        if (line[0] == 'v' && line[1] == 't') {
-            Vector vec;
-            sscanf(line, "vt %f %f\n", &vec[0], &vec[1]);
-            uvs.push_back(vec);
-        }
-        if (line[0] == 'f') {
-            TriangleIndices t;
-            int i0, i1, i2, i3;
-            int j0, j1, j2, j3;
-            int k0, k1, k2, k3;
-            int nn;
-            t.group = curGroup;
+						vertices.push_back(vec);
+		vec = vec*0.8+Vector(0, -10, 0);
+						vertexcolors.push_back(col);
+				} else {
+						sscanf(line, "v %f %f %f\n", &vec[0], &vec[1], &vec[2]);
+		vec = vec*0.8+Vector(0, -10, 0);
+						vertices.push_back(vec);
+				}
+		}
+		if (line[0] == 'v' && line[1] == 'n') {
+				Vector vec;
+				sscanf(line, "vn %f %f %f\n", &vec[0], &vec[1], &vec[2]);
+				normals.push_back(vec);
+		}
+		if (line[0] == 'v' && line[1] == 't') {
+				Vector vec;
+				sscanf(line, "vt %f %f\n", &vec[0], &vec[1]);
+				uvs.push_back(vec);
+		}
+		if (line[0] == 'f') {
+			TriangleIndices t;
+			int i0, i1, i2, i3;
+			int j0, j1, j2, j3;
+			int k0, k1, k2, k3;
+			int nn;
+			t.group = curGroup;
 
-            char *consumedline = line + 1;
-            int offset;
+			char *consumedline = line + 1;
+			int offset;
 
-            nn = sscanf(consumedline, "%u/%u/%u %u/%u/%u %u/%u/%u%n", &i0, &j0, &k0, &i1, &j1, &k1, &i2, &j2, &k2, &offset);
-            if (nn == 9) {
-                if (i0 < 0)
-                    t.vtxi = vertices.size() + i0;
-                else
-                    t.vtxi = i0 - 1;
-                if (i1 < 0)
-                    t.vtxj = vertices.size() + i1;
-                else
-                    t.vtxj = i1 - 1;
-                if (i2 < 0)
-                    t.vtxk = vertices.size() + i2;
-                else
-                    t.vtxk = i2 - 1;
-                if (j0 < 0)
-                    t.uvi = uvs.size() + j0;
-                else
-                    t.uvi = j0 - 1;
-                if (j1 < 0)
-                    t.uvj = uvs.size() + j1;
-                else
-                    t.uvj = j1 - 1;
-                if (j2 < 0)
-                    t.uvk = uvs.size() + j2;
-                else
-                    t.uvk = j2 - 1;
-                if (k0 < 0)
-                    t.ni = normals.size() + k0;
-                else
-                    t.ni = k0 - 1;
-                if (k1 < 0)
-                    t.nj = normals.size() + k1;
-                else
-                    t.nj = k1 - 1;
-                if (k2 < 0)
-                    t.nk = normals.size() + k2;
-                else
-                    t.nk = k2 - 1;
-                indices.push_back(t);
-            } else {
-                nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
-                if (nn == 6) {
-                    if (i0 < 0)
-                        t.vtxi = vertices.size() + i0;
-                    else
-                        t.vtxi = i0 - 1;
-                    if (i1 < 0)
-                        t.vtxj = vertices.size() + i1;
-                    else
-                        t.vtxj = i1 - 1;
-                    if (i2 < 0)
-                        t.vtxk = vertices.size() + i2;
-                    else
-                        t.vtxk = i2 - 1;
-                    if (j0 < 0)
-                        t.uvi = uvs.size() + j0;
-                    else
-                        t.uvi = j0 - 1;
-                    if (j1 < 0)
-                        t.uvj = uvs.size() + j1;
-                    else
-                        t.uvj = j1 - 1;
-                    if (j2 < 0)
-                        t.uvk = uvs.size() + j2;
-                    else
-                        t.uvk = j2 - 1;
-                    indices.push_back(t);
-                } else {
-                    nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
-                    if (nn == 3) {
-                        if (i0 < 0)
-                            t.vtxi = vertices.size() + i0;
-                        else
-                            t.vtxi = i0 - 1;
-                        if (i1 < 0)
-                            t.vtxj = vertices.size() + i1;
-                        else
-                            t.vtxj = i1 - 1;
-                        if (i2 < 0)
-                            t.vtxk = vertices.size() + i2;
-                        else
-                            t.vtxk = i2 - 1;
-                        indices.push_back(t);
-                    } else {
-                        nn = sscanf(consumedline, "%u//%u %u//%u %u//%u%n", &i0, &k0, &i1, &k1, &i2, &k2, &offset);
-                        if (i0 < 0)
-                            t.vtxi = vertices.size() + i0;
-                        else
-                            t.vtxi = i0 - 1;
-                        if (i1 < 0)
-                            t.vtxj = vertices.size() + i1;
-                        else
-                            t.vtxj = i1 - 1;
-                        if (i2 < 0)
-                            t.vtxk = vertices.size() + i2;
-                        else
-                            t.vtxk = i2 - 1;
-                        if (k0 < 0)
-                            t.ni = normals.size() + k0;
-                        else
-                            t.ni = k0 - 1;
-                        if (k1 < 0)
-                            t.nj = normals.size() + k1;
-                        else
-                            t.nj = k1 - 1;
-                        if (k2 < 0)
-                            t.nk = normals.size() + k2;
-                        else
-                            t.nk = k2 - 1;
-                        indices.push_back(t);
-                    }
-                }
-            }
+			nn = sscanf(consumedline, "%u/%u/%u %u/%u/%u %u/%u/%u%n", &i0, &j0, &k0, &i1, &j1, &k1, &i2, &j2, &k2, &offset);
+			if (nn == 9) {
+				if (i0 < 0)
+						t.vtxi = vertices.size() + i0;
+				else
+						t.vtxi = i0 - 1;
+				if (i1 < 0)
+						t.vtxj = vertices.size() + i1;
+				else
+						t.vtxj = i1 - 1;
+				if (i2 < 0)
+						t.vtxk = vertices.size() + i2;
+				else
+						t.vtxk = i2 - 1;
+				if (j0 < 0)
+						t.uvi = uvs.size() + j0;
+				else
+						t.uvi = j0 - 1;
+				if (j1 < 0)
+						t.uvj = uvs.size() + j1;
+				else
+						t.uvj = j1 - 1;
+				if (j2 < 0)
+						t.uvk = uvs.size() + j2;
+				else
+						t.uvk = j2 - 1;
+				if (k0 < 0)
+						t.ni = normals.size() + k0;
+				else
+						t.ni = k0 - 1;
+				if (k1 < 0)
+						t.nj = normals.size() + k1;
+				else
+						t.nj = k1 - 1;
+				if (k2 < 0)
+						t.nk = normals.size() + k2;
+				else
+						t.nk = k2 - 1;
+				indices.push_back(t);
+			} else {
+				nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
+				if (nn == 6) {
+					if (i0 < 0)
+							t.vtxi = vertices.size() + i0;
+					else
+							t.vtxi = i0 - 1;
+					if (i1 < 0)
+							t.vtxj = vertices.size() + i1;
+					else
+							t.vtxj = i1 - 1;
+					if (i2 < 0)
+							t.vtxk = vertices.size() + i2;
+					else
+							t.vtxk = i2 - 1;
+					if (j0 < 0)
+							t.uvi = uvs.size() + j0;
+					else
+							t.uvi = j0 - 1;
+					if (j1 < 0)
+							t.uvj = uvs.size() + j1;
+					else
+							t.uvj = j1 - 1;
+					if (j2 < 0)
+							t.uvk = uvs.size() + j2;
+					else
+							t.uvk = j2 - 1;
+					indices.push_back(t);
+				} else {
+					nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
+					if (nn == 3) {
+						if (i0 < 0)
+							t.vtxi = vertices.size() + i0;
+						else
+							t.vtxi = i0 - 1;
+						if (i1 < 0)
+							t.vtxj = vertices.size() + i1;
+						else
+							t.vtxj = i1 - 1;
+						if (i2 < 0)
+							t.vtxk = vertices.size() + i2;
+						else
+							t.vtxk = i2 - 1;
+						indices.push_back(t);
+					} else {
+						nn = sscanf(consumedline, "%u//%u %u//%u %u//%u%n", &i0, &k0, &i1, &k1, &i2, &k2, &offset);
+						if (i0 < 0)
+								t.vtxi = vertices.size() + i0;
+						else
+								t.vtxi = i0 - 1;
+						if (i1 < 0)
+								t.vtxj = vertices.size() + i1;
+						else
+								t.vtxj = i1 - 1;
+						if (i2 < 0)
+								t.vtxk = vertices.size() + i2;
+						else
+								t.vtxk = i2 - 1;
+						if (k0 < 0)
+								t.ni = normals.size() + k0;
+						else
+								t.ni = k0 - 1;
+						if (k1 < 0)
+								t.nj = normals.size() + k1;
+						else
+								t.nj = k1 - 1;
+						if (k2 < 0)
+								t.nk = normals.size() + k2;
+						else
+								t.nk = k2 - 1;
+						indices.push_back(t);
+					}
+				}
+			}
 
-            consumedline = consumedline + offset;
+			consumedline = consumedline + offset;
 
-            while (true) {
-                if (consumedline[0] == '\n')
-                    break;
-                if (consumedline[0] == '\0')
-                    break;
-                nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
-                TriangleIndices t2;
-                t2.group = curGroup;
-                if (nn == 3) {
-                    if (i0 < 0)
-                        t2.vtxi = vertices.size() + i0;
-                    else
-                        t2.vtxi = i0 - 1;
-                    if (i2 < 0)
-                        t2.vtxj = vertices.size() + i2;
-                    else
-                        t2.vtxj = i2 - 1;
-                    if (i3 < 0)
-                        t2.vtxk = vertices.size() + i3;
-                    else
-                        t2.vtxk = i3 - 1;
-                    if (j0 < 0)
-                        t2.uvi = uvs.size() + j0;
-                    else
-                        t2.uvi = j0 - 1;
-                    if (j2 < 0)
-                        t2.uvj = uvs.size() + j2;
-                    else
-                        t2.uvj = j2 - 1;
-                    if (j3 < 0)
-                        t2.uvk = uvs.size() + j3;
-                    else
-                        t2.uvk = j3 - 1;
-                    if (k0 < 0)
-                        t2.ni = normals.size() + k0;
-                    else
-                        t2.ni = k0 - 1;
-                    if (k2 < 0)
-                        t2.nj = normals.size() + k2;
-                    else
-                        t2.nj = k2 - 1;
-                    if (k3 < 0)
-                        t2.nk = normals.size() + k3;
-                    else
-                        t2.nk = k3 - 1;
-                    indices.push_back(t2);
-                    consumedline = consumedline + offset;
-                    i2 = i3;
-                    j2 = j3;
-                    k2 = k3;
-                } else {
-                    nn = sscanf(consumedline, "%u/%u%n", &i3, &j3, &offset);
-                    if (nn == 2) {
-                        if (i0 < 0)
-                            t2.vtxi = vertices.size() + i0;
-                        else
-                            t2.vtxi = i0 - 1;
-                        if (i2 < 0)
-                            t2.vtxj = vertices.size() + i2;
-                        else
-                            t2.vtxj = i2 - 1;
-                        if (i3 < 0)
-                            t2.vtxk = vertices.size() + i3;
-                        else
-                            t2.vtxk = i3 - 1;
-                        if (j0 < 0)
-                            t2.uvi = uvs.size() + j0;
-                        else
-                            t2.uvi = j0 - 1;
-                        if (j2 < 0)
-                            t2.uvj = uvs.size() + j2;
-                        else
-                            t2.uvj = j2 - 1;
-                        if (j3 < 0)
-                            t2.uvk = uvs.size() + j3;
-                        else
-                            t2.uvk = j3 - 1;
-                        consumedline = consumedline + offset;
-                        i2 = i3;
-                        j2 = j3;
-                        indices.push_back(t2);
-                    } else {
-                        nn = sscanf(consumedline, "%u//%u%n", &i3, &k3, &offset);
-                        if (nn == 2) {
-                            if (i0 < 0)
-                                t2.vtxi = vertices.size() + i0;
-                            else
-                                t2.vtxi = i0 - 1;
-                            if (i2 < 0)
-                                t2.vtxj = vertices.size() + i2;
-                            else
-                                t2.vtxj = i2 - 1;
-                            if (i3 < 0)
-                                t2.vtxk = vertices.size() + i3;
-                            else
-                                t2.vtxk = i3 - 1;
-                            if (k0 < 0)
-                                t2.ni = normals.size() + k0;
-                            else
-                                t2.ni = k0 - 1;
-                            if (k2 < 0)
-                                t2.nj = normals.size() + k2;
-                            else
-                                t2.nj = k2 - 1;
-                            if (k3 < 0)
-                                t2.nk = normals.size() + k3;
-                            else
-                                t2.nk = k3 - 1;
-                            consumedline = consumedline + offset;
-                            i2 = i3;
-                            k2 = k3;
-                            indices.push_back(t2);
-                        } else {
-                            nn = sscanf(consumedline, "%u%n", &i3, &offset);
-                            if (nn == 1) {
-                                if (i0 < 0)
-                                    t2.vtxi = vertices.size() + i0;
-                                else
-                                    t2.vtxi = i0 - 1;
-                                if (i2 < 0)
-                                    t2.vtxj = vertices.size() + i2;
-                                else
-                                    t2.vtxj = i2 - 1;
-                                if (i3 < 0)
-                                    t2.vtxk = vertices.size() + i3;
-                                else
-                                    t2.vtxk = i3 - 1;
-                                consumedline = consumedline + offset;
-                                i2 = i3;
-                                indices.push_back(t2);
-                            } else {
-                                consumedline = consumedline + 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    fclose(f);
+			while (true) {
+				if (consumedline[0] == '\n')
+						break;
+				if (consumedline[0] == '\0')
+						break;
+				nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
+				TriangleIndices t2;
+				t2.group = curGroup;
+				if (nn == 3) {
+					if (i0 < 0)
+						t2.vtxi = vertices.size() + i0;
+					else
+						t2.vtxi = i0 - 1;
+					if (i2 < 0)
+						t2.vtxj = vertices.size() + i2;
+					else
+						t2.vtxj = i2 - 1;
+					if (i3 < 0)
+						t2.vtxk = vertices.size() + i3;
+					else
+						t2.vtxk = i3 - 1;
+					if (j0 < 0)
+						t2.uvi = uvs.size() + j0;
+					else
+						t2.uvi = j0 - 1;
+					if (j2 < 0)
+						t2.uvj = uvs.size() + j2;
+					else
+						t2.uvj = j2 - 1;
+					if (j3 < 0)
+						t2.uvk = uvs.size() + j3;
+					else
+						t2.uvk = j3 - 1;
+					if (k0 < 0)
+						t2.ni = normals.size() + k0;
+					else
+						t2.ni = k0 - 1;
+					if (k2 < 0)
+						t2.nj = normals.size() + k2;
+					else
+						t2.nj = k2 - 1;
+					if (k3 < 0)
+						t2.nk = normals.size() + k3;
+					else
+						t2.nk = k3 - 1;
+					indices.push_back(t2);
+					consumedline = consumedline + offset;
+					i2 = i3;
+					j2 = j3;
+					k2 = k3;
+				} else {
+					nn = sscanf(consumedline, "%u/%u%n", &i3, &j3, &offset);
+					if (nn == 2) {
+						if (i0 < 0)
+							t2.vtxi = vertices.size() + i0;
+						else
+							t2.vtxi = i0 - 1;
+						if (i2 < 0)
+							t2.vtxj = vertices.size() + i2;
+						else
+							t2.vtxj = i2 - 1;
+						if (i3 < 0)
+							t2.vtxk = vertices.size() + i3;
+						else
+							t2.vtxk = i3 - 1;
+						if (j0 < 0)
+							t2.uvi = uvs.size() + j0;
+						else
+							t2.uvi = j0 - 1;
+						if (j2 < 0)
+							t2.uvj = uvs.size() + j2;
+						else
+							t2.uvj = j2 - 1;
+						if (j3 < 0)
+							t2.uvk = uvs.size() + j3;
+						else
+							t2.uvk = j3 - 1;
+						consumedline = consumedline + offset;
+						i2 = i3;
+						j2 = j3;
+						indices.push_back(t2);
+					} else {
+						nn = sscanf(consumedline, "%u//%u%n", &i3, &k3, &offset);
+						if (nn == 2) {
+							if (i0 < 0)
+								t2.vtxi = vertices.size() + i0;
+							else
+								t2.vtxi = i0 - 1;
+							if (i2 < 0)
+								t2.vtxj = vertices.size() + i2;
+							else
+								t2.vtxj = i2 - 1;
+							if (i3 < 0)
+								t2.vtxk = vertices.size() + i3;
+							else
+								t2.vtxk = i3 - 1;
+							if (k0 < 0)
+								t2.ni = normals.size() + k0;
+							else
+								t2.ni = k0 - 1;
+							if (k2 < 0)
+								t2.nj = normals.size() + k2;
+							else
+								t2.nj = k2 - 1;
+							if (k3 < 0)
+								t2.nk = normals.size() + k3;
+							else
+								t2.nk = k3 - 1;
+							consumedline = consumedline + offset;
+							i2 = i3;
+							k2 = k3;
+							indices.push_back(t2);
+						} else {
+							nn = sscanf(consumedline, "%u%n", &i3, &offset);
+							if (nn == 1) {
+								if (i0 < 0)
+									t2.vtxi = vertices.size() + i0;
+								else
+									t2.vtxi = i0 - 1;
+								if (i2 < 0)
+									t2.vtxj = vertices.size() + i2;
+								else
+									t2.vtxj = i2 - 1;
+								if (i3 < 0)
+									t2.vtxk = vertices.size() + i3;
+								else
+									t2.vtxk = i3 - 1;
+								consumedline = consumedline + offset;
+								i2 = i3;
+								indices.push_back(t2);
+							} else {
+								consumedline = consumedline + 1;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	fclose(f);
 };
 
 	std::vector<TriangleIndices> indices;
@@ -715,13 +714,13 @@ public:
 	}
 
 	__device__ bool intersect_all(const Ray& r, Vector &P, Vector &N, int &objectId) {
-	 float t_min = INF;
+	 	float t_min = INF;
 		int id_min = -1;
 		Vector N_min;
-        for (int i = 0; i < objects_size; i++) {
-            Geometry* object_ptr = objects[i];
-		 float t;
-		 float id = object_ptr->id;
+		for (int i = 0; i < objects_size; i++) {
+				Geometry* object_ptr = objects[i];
+			float t;
+			float id = object_ptr->id;
 			Vector N_tmp;
 			bool ok = object_ptr->intersect(r, t, N_tmp);
 			if (ok && t < t_min) {
@@ -750,7 +749,7 @@ public:
 				if (objects[sphere_id]->mirror) {
 					// Reflection
 					types[ray_depth] = 0;
-				 float epsilon = 1e-4;
+				 	float epsilon = 1e-4;
 					Vector P_adjusted = P + epsilon * N;
 					Vector new_direction = ray.u - 2 * dot(ray.u, N) * N;
 					Ray reflected_ray(P_adjusted, new_direction, ray.refraction_index);
@@ -758,8 +757,8 @@ public:
 				} else if (objects[sphere_id]->in_refraction_index != objects[sphere_id]->out_refraction_index) {
 					// Refraction
 					types[ray_depth] = 0;
-				 float epsilon = 1e-4;
-				 float refract_ratio;
+					float epsilon = 1e-4;
+					float refract_ratio;
 					bool out2in = ray.refraction_index == objects[sphere_id]->out_refraction_index;
 					if (out2in) { 
 						// outside to inside
@@ -840,7 +839,7 @@ public:
 	}
 
 	Geometry* objects[10];
-    int objects_size = 0;
+	int objects_size = 0;
  	float intensity = 3e10;
 	Vector L;
 	curandState* rand_states;
@@ -896,13 +895,13 @@ __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_ray
 	outcolor = Vector(0.f, 0.f, 0.f);
 	
 	// curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
-    // int i = (index / num_rays) / W, j = (index / num_rays) % W;
+	// int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	
 	Vector C(0, 0, 55);
 	float alpha = PI/3;
 	float z = -W / (2 * tan(alpha/2));
 
-    Vector u_center(x -  (float)W / 2 + 0.5,  (float)H / 2 - y - 0.5, z);
+	Vector u_center(x -  (float)W / 2 + 0.5,  (float)H / 2 - y - 0.5, z);
 	// Box-muller for anti-aliasing
 
 	float sigma = 0.2;
@@ -920,56 +919,56 @@ __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_ray
 }
 
 void allocateAndCopyDataToDevice(TriangleMeshHost* mesh_ptr, Vector*& d_vertices, Vector*& d_normals, TriangleIndices*& d_indices) {
-    gpuErrchk(cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)));
-    gpuErrchk(cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice));
+	gpuErrchk(cudaMalloc((void**)&d_vertices, mesh_ptr->vertices.size() * sizeof(Vector)));
+	gpuErrchk(cudaMemcpy(d_vertices, &(mesh_ptr->vertices[0]), mesh_ptr->vertices.size() * sizeof(Vector), cudaMemcpyHostToDevice));
 
-    gpuErrchk(cudaMalloc((void**)&d_normals, mesh_ptr->normals.size() * sizeof(Vector)));
-    gpuErrchk(cudaMemcpy(d_normals, &(mesh_ptr->normals[0]), mesh_ptr->normals.size() * sizeof(Vector), cudaMemcpyHostToDevice));
+	gpuErrchk(cudaMalloc((void**)&d_normals, mesh_ptr->normals.size() * sizeof(Vector)));
+	gpuErrchk(cudaMemcpy(d_normals, &(mesh_ptr->normals[0]), mesh_ptr->normals.size() * sizeof(Vector), cudaMemcpyHostToDevice));
 
-    gpuErrchk(cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)));
-    gpuErrchk(cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice));
+	gpuErrchk(cudaMalloc((void**)&d_indices, mesh_ptr->indices.size() * sizeof(TriangleIndices)));
+	gpuErrchk(cudaMemcpy(d_indices, &(mesh_ptr->indices[0]), mesh_ptr->indices.size() * sizeof(TriangleIndices), cudaMemcpyHostToDevice));
 }
 
 void transformMesh(Vector* d_vertices, int vertices_size, Vector* d_normals, int normals_size, const Vector& translation, const float* rotation_matrix) {
-    float* d_rotation_matrix;
-    gpuErrchk(cudaMalloc(&d_rotation_matrix, 9 * sizeof(float)));
-    gpuErrchk(cudaMemcpy(d_rotation_matrix, rotation_matrix, 9 * sizeof(float), cudaMemcpyHostToDevice));
+	float* d_rotation_matrix;
+	gpuErrchk(cudaMalloc(&d_rotation_matrix, 9 * sizeof(float)));
+	gpuErrchk(cudaMemcpy(d_rotation_matrix, rotation_matrix, 9 * sizeof(float), cudaMemcpyHostToDevice));
 
-    const int threadsPerBlock = 256;
-    const int max_size = max(vertices_size, normals_size);
-    const int numBlocks = (max_size + threadsPerBlock - 1) / threadsPerBlock;
+	const int threadsPerBlock = 256;
+	const int max_size = max(vertices_size, normals_size);
+	const int numBlocks = (max_size + threadsPerBlock - 1) / threadsPerBlock;
 
-    transform<<<numBlocks, threadsPerBlock>>>(d_vertices, vertices_size, d_normals, normals_size, translation, d_rotation_matrix);
-    gpuErrchk(cudaPeekAtLastError());
-    gpuErrchk(cudaDeviceSynchronize());
+	transform<<<numBlocks, threadsPerBlock>>>(d_vertices, vertices_size, d_normals, normals_size, translation, d_rotation_matrix);
+	gpuErrchk(cudaPeekAtLastError());
+	gpuErrchk(cudaDeviceSynchronize());
 
-    cudaFree(d_rotation_matrix);
+	cudaFree(d_rotation_matrix);
 }
 
 void renderScene(Scene* d_s, Vector* d_colors, int W, int H, int num_rays, int num_bounce) {
-    dim3 block(16, 16, 1);
-    dim3 grid(W / block.x, H / block.y, 1);
+	dim3 block(16, 16, 1);
+	dim3 grid(W / block.x, H / block.y, 1);
 
-    KernelLaunch<<<grid, block>>>(d_s, d_colors, W, H, num_rays, num_bounce);
-    gpuErrchk(cudaPeekAtLastError());
-    gpuErrchk(cudaDeviceSynchronize());
+	KernelLaunch<<<grid, block>>>(d_s, d_colors, W, H, num_rays, num_bounce);
+	gpuErrchk(cudaPeekAtLastError());
+	gpuErrchk(cudaDeviceSynchronize());
 }
 
 void saveImage(Vector* h_colors, int W, int H) {
-    char* image = new char[W * H * 3];
-    for (int i = 0; i < H; ++i) {
-        for (int j = 0; j < W; ++j) {
-            image[(i * W + j) * 3 + 0] = min(pow(h_colors[(i * W + j)][0], 1.0 / 2.2), 255.0);
-            image[(i * W + j) * 3 + 1] = min(pow(h_colors[(i * W + j)][1], 1.0 / 2.2), 255.0);
-            image[(i * W + j) * 3 + 2] = min(pow(h_colors[(i * W + j)][2], 1.0 / 2.2), 255.0);
-        }
-    }
-    stbi_write_png("./global_image.png", W, H, 3, image, 0);
-    delete[] image;
+	char* image = new char[W * H * 3];
+	for (int i = 0; i < H; ++i) {
+		for (int j = 0; j < W; ++j) {
+			image[(i * W + j) * 3 + 0] = min(pow(h_colors[(i * W + j)][0], 1.0 / 2.2), 255.0);
+			image[(i * W + j) * 3 + 1] = min(pow(h_colors[(i * W + j)][1], 1.0 / 2.2), 255.0);
+			image[(i * W + j) * 3 + 2] = min(pow(h_colors[(i * W + j)][2], 1.0 / 2.2), 255.0);
+		}
+	}
+	stbi_write_png("./global_image.png", W, H, 3, image, 0);
+	delete[] image;
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
+		if (argc != 3) {
 		std::cout << "Invalid number of arguments!\nThe first argument is number of rays and the second argument is number of bounces.\n";
 		return 0;
 	}
@@ -982,29 +981,29 @@ int main(int argc, char **argv) {
 	int GRID_DIM = W * H * num_rays / BLOCK_DIM;
 	float angle = -M_PI/3;
 
-    Vector translation = {0.f, 0.f, 0.f};
-    // float rotation_matrix[9] = {
-    //     cosf(angle), -sinf(angle), 0.,
-    //     sinf(angle), cosf(angle), 0.,
-    //     0., 0., 1.
-    // };
+	Vector translation = {0.f, 0.f, 0.f};
+	// float rotation_matrix[9] = {
+	//		 cosf(angle), -sinf(angle), 0.,
+	//		 sinf(angle), cosf(angle), 0.,
+	//		 0., 0., 1.
+	// };
 	float rotation_matrix[9] = {
-        cosf(angle), 0, sinf(angle),
-       	0, 1, 0,
-        -sinf(angle), 0., cosf(angle),
-    };
+		cosf(angle), 0, sinf(angle),
+		0, 1, 0,
+		-sinf(angle), 0., cosf(angle),
+	};
 	
 	Scene *d_s;
 	Vector *h_colors, *d_colors;
-    char *image;
+	char *image;
 	h_colors = new Vector[H * W];
-    image = new char[H * W * 3];
+	image = new char[H * W * 3];
 
 	gpuErrchk( cudaDeviceSetLimit(cudaLimitStackSize, 1<<14) );
 	
 	// Malloc & transfer to GPU
-    gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
-    gpuErrchk( cudaMalloc((void**)&d_colors, H * W * sizeof(Vector)) );
+	gpuErrchk( cudaMalloc((void**)&d_s, sizeof(Scene)) );
+	gpuErrchk( cudaMalloc((void**)&d_colors, H * W * sizeof(Vector)) );
 
 	/*
 		Instantiate cat object
@@ -1023,10 +1022,10 @@ int main(int argc, char **argv) {
 		Transfer remaining neccessary mesh information to GPU
 	*/
 	Vector* d_vertices;
-    Vector* d_normals;
-    TriangleIndices* d_indices;
+	Vector* d_normals;
+	TriangleIndices* d_indices;
 
-    allocateAndCopyDataToDevice(mesh_ptr, d_vertices, d_normals, d_indices);
+	allocateAndCopyDataToDevice(mesh_ptr, d_vertices, d_normals, d_indices);
 
 	// float *d_rotation_matrix;
 	// cudaMalloc(&d_rotation_matrix, 9 * sizeof(float));
@@ -1046,21 +1045,21 @@ int main(int argc, char **argv) {
 		Clean memory
 		Deduce final result
 	*/
-    gpuErrchk( cudaMemcpy(h_colors, d_colors, H * W * sizeof(Vector), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaFree(d_s) );
-    gpuErrchk( cudaFree(d_colors) );
-    gpuErrchk( cudaFree(d_indices) );
-    gpuErrchk( cudaFree(d_vertices) );
+	gpuErrchk( cudaMemcpy(h_colors, d_colors, H * W * sizeof(Vector), cudaMemcpyDeviceToHost) );
+	gpuErrchk( cudaFree(d_s) );
+	gpuErrchk( cudaFree(d_colors) );
+	gpuErrchk( cudaFree(d_indices) );
+	gpuErrchk( cudaFree(d_vertices) );
 	// delete[] arr_bvh;
 	saveImage(h_colors, W, H);
-    delete[] h_colors;
+	delete[] h_colors;
 
 	/*
 		Measure runtime
 	*/
-    auto end_time = std::chrono::system_clock::now();
-    std::chrono::duration<double> run_time = end_time - start_time;
-    std::cout << "Rendering time: " << run_time.count() << " s\n";
+	auto end_time = std::chrono::system_clock::now();
+	std::chrono::duration<double> run_time = end_time - start_time;
+	std::cout << "Rendering time: " << run_time.count() << " s\n";
 
 	return 0;
 }
