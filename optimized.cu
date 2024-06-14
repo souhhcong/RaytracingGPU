@@ -48,7 +48,7 @@ public:
 		return data[0] * data[0] + data[1] * data[1] + data[2] * data[2];
 	}
 	__device__ __host__ float norm() const {
-		return sqrt(norm2());
+		return sqrtf(norm2());
 	}
 	__device__ __host__ void normalize() {
 		float n = norm();
@@ -125,14 +125,13 @@ public:
 		float delta = SQR(dot(r.u, r.O - C)) - ((r.O - C).norm2() - R*R);
 		if (delta < 0)
 			return 0;
-		float t1 = dot(r.u, C - r.O) - sqrt(delta); // first intersection
-		float t2 = dot(r.u, C - r.O) + sqrt(delta); // second intersection
+		float t1 = dot(r.u, C - r.O) - sqrtf(delta); // first intersection
+		float t2 = dot(r.u, C - r.O) + sqrtf(delta); // second intersection
 		if (t2 < 0)
 			return 0;
 		t = t1 < 0 ? t2 : t1;
 		N = r.O + t * r.u - C;
 		N.normalize();
-		// printf("Intersect!\n");
 		return 1;
 	}
 };
@@ -549,7 +548,6 @@ public:
 			Vector N_tmp;
 			bool ok = object_ptr->intersect(r, t, N_tmp);
 			if (ok && t < t_min) {
-				// printf("OKOK\n");
 				t_min = t;
 				id_min = id;
 				N_min = N_tmp;
@@ -602,7 +600,7 @@ public:
 						continue;
 					}
 					Vector P_adjusted = P - epsilon * N;
-					Vector N_component = - sqrt(1 - SQR(refract_ratio) * (1 - SQR(dot(ray.u, N)))) * N;
+					Vector N_component = - sqrtf(1 - SQR(refract_ratio) * (1 - SQR(dot(ray.u, N)))) * N;
 					Vector T_component = refract_ratio * (ray.u - dot(ray.u, N) * N);
 					Vector new_direction = N_component + T_component;
 					if (out2in) {
@@ -635,9 +633,9 @@ public:
 					unsigned int seed = threadIdx.x;
 					float r1 = uniform(rand_states, seed);
 					float r2 = uniform(rand_states, seed);
-					float x = cos(2 * PI * r1) * sqrt(1 - r2);
-					float y = sin(2 * PI * r1) * sqrt(1 - r2);
-					float z = sqrt(r2);
+					float x = cosf(2 * PI * r1) * sqrtf(1 - r2);
+					float y = sinf(2 * PI * r1) * sqrtf(1 - r2);
+					float z = sqrtf(r2);
 					Vector T1;
 					if (abs(N[1]) != 0 && abs(N[0]) != 0) {
 						T1 = Vector(-N[1], N[0], 0);
@@ -758,16 +756,16 @@ __global__ void KernelLaunch(char *colors, int W, int H, int num_rays, int num_b
 	for (int t = 0; t < num_rays; ++t) {
 		float r1 = uniform(shared_scene->rand_states, seed);
 		float r2 = uniform(shared_scene->rand_states, seed);
-		Vector u = u_center + Vector(sigma * sqrt(-2 * log(r1)) * cos(2 * PI * r2), sigma * sqrt(-2 * log(r1)) * sin(2 * PI * r2), 0);
+		Vector u = u_center + Vector(sigma * sqrtf(-2 * log(r1)) * cosf(2 * PI * r2), sigma * sqrtf(-2 * log(r1)) * sinf(2 * PI * r2), 0);
 		u.normalize();
 		Ray r(C, u);
 		Vector color = shared_scene->getColorIterative(r, num_bounce);
 		color_out = color_out + color;
 	}
 	color_out = color_out / num_rays;
-	shared_colors[threadIdx.x * 3 + 0] = min(std::pow(color_out[0], 1./2.2), 255.);
-    shared_colors[threadIdx.x * 3 + 1] = min(std::pow(color_out[1], 1./2.2), 255.);
-    shared_colors[threadIdx.x * 3 + 2] = min(std::pow(color_out[2], 1./2.2), 255.);
+	shared_colors[threadIdx.x * 3 + 0] = min(powf(color_out[0], 1./2.2), 255.);
+    shared_colors[threadIdx.x * 3 + 1] = min(powf(color_out[1], 1./2.2), 255.);
+    shared_colors[threadIdx.x * 3 + 2] = min(powf(color_out[2], 1./2.2), 255.);
 	__syncthreads();
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 0 + threadIdx.x] = shared_colors[blockDim.x * 0 + threadIdx.x];
 	colors[blockIdx.x * blockDim.x * 3 + blockDim.x * 1 + threadIdx.x] = shared_colors[blockDim.x * 1 + threadIdx.x];

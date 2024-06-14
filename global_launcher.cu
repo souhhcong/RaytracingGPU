@@ -115,7 +115,7 @@ public:
 
 class Sphere: public Geometry {
 public:
-	__host__ __device__ Sphere(){};
+	__host__ __device__ Sphere() {};
 	__device__ Sphere(const Vector &C, float R, const Vector& albedo, bool mirror = 0, float in_refraction_index = 1., float out_refraction_index = 1.) : 
 	C(C), R(R), Geometry(albedo, id, mirror, in_refraction_index, out_refraction_index) {};
     Vector C;
@@ -139,7 +139,7 @@ public:
 /* Start of code derived from Prof Bonnel's code */
 class TriangleIndices {
 public:
-	__device__ __host__ TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group){};
+	__device__ __host__ TriangleIndices(int vtxi = -1, int vtxj = -1, int vtxk = -1, int ni = -1, int nj = -1, int nk = -1, int uvi = -1, int uvj = -1, int uvk = -1, int group = -1, bool added = false) : vtxi(vtxi), vtxj(vtxj), vtxk(vtxk), uvi(uvi), uvj(uvj), uvk(uvk), ni(ni), nj(nj), nk(nk), group(group) {};
     int vtxi, vtxj, vtxk; // indices within the vertex coordinates array
     int uvi, uvj, uvk;    // indices within the uv coordinates array
     int ni, nj, nk;       // indices within the normals array
@@ -180,11 +180,6 @@ public:
 	if (t0x > t1x) swap(t0x, t1x);
 	if (t0y > t1y) swap(t0y, t1y);
 	if (t0z > t1z) swap(t0z, t1z);
-
-	// printf("%f %f %f", t0x, t0y, t0z)
-	// PRINT_VEC(mn);
-	// PRINT_VEC(mx);
-
 	return min(t1x, min(t1y, t1z)) > max(t0x, max(t0y, t0z));
 	}
 };
@@ -210,7 +205,7 @@ public:
 
 	#define between(A, B, C) ((A) <= (B) && (B) <= (C))
 
-	__device__ void get_smooth_normal(Ray r, TriangleIndices tid, Vector &N){
+	__device__ void get_smooth_normal(Ray r, TriangleIndices tid, Vector &N) {
 		Vector A, B, C;
 		float alpha, t;
 
@@ -249,27 +244,8 @@ public:
 	}
 	
 	__device__ bool intersect(const Ray &r, float &t, Vector &N) override {
-	 float t_tmp;
-
-		// #define BUILD_BVH(var, idx) var.left = bvh[(idx) * 10 + 0],\
-		// 							var.right = bvh[(idx) * 10 + 1],\
-		// 							var.bb = BoundingBox(\
-		// 								Vector(\
-		// 									bvh[(idx) * 10 + 2],\
-		// 									bvh[(idx) * 10 + 3],\
-		// 									bvh[(idx) * 10 + 4]\
-		// 								),\
-		// 								Vector(\
-		// 									bvh[(idx) * 10 + 5],\
-		// 									bvh[(idx) * 10 + 6],\
-		// 									bvh[(idx) * 10 + 7]\
-		// 								)\
-		// 							),\
-		// 							var.triangle_start = bvh[(idx) * 10 + 8],\
-		// 							var.triangle_end = bvh[(idx) * 10 + 9]
-		// PRINT_VEC(tmp);
+		float t_tmp;
 		BVH root_bvh = bvh;
-		// BUILD_BVH(root_bvh, 0);
 		if (!root_bvh.bb.intersect(r, t_tmp)) {
 			return 0;
 		}
@@ -277,20 +253,12 @@ public:
 		BVH* s[30];
 		int s_size = 0;
 		s[s_size++] = &root_bvh;
-
-
-	 float t_min = INF;
-	 int idx_min = -1;
+		float t_min = INF;
+		int idx_min = -1;
 		while (s_size) {
 			BVH *cur = s[s_size-1];
 			s_size--;
-			// BVHDevice cur_bvh;
-			// BUILD_BVH(cur_bvh, cur);
 			if (cur->left != NULL) {
-				// BVHDevice left_bvh;
-				// BUILD_BVH(left_bvh, cur.left);
-				// BVHDevice right_bvh;
-				// BUILD_BVH(right_bvh, cur.right);
 			 float t_left, t_right;
 				bool ok_left = cur->left->bb.intersect(r, t_left);
 				bool ok_right = cur->right->bb.intersect(r, t_right);
@@ -299,7 +267,7 @@ public:
 			} else {
 				// Leaf
 				for (int i = cur->triangle_start; i < cur->triangle_end; i++) {
-				 float t_cur;
+				 	float t_cur;
 					Vector A = vertices[indices[i].vtxi], B = vertices[indices[i].vtxj], C = vertices[indices[i].vtxk];
 					Vector N_triangle;
 					bool inter = moller_trumbore(A, B, C, N_triangle, r, t_cur);
@@ -308,24 +276,13 @@ public:
 						t_min = t_cur;
 						N = N_triangle;
 						idx_min = i;
-						//
-						// PRINT_VEC(N);
 					}
 				} 
 			}
 		}
 		N.normalize();
-		if(idx_min > -1)
-			// PRINT_VEC(N);
-			// get_smooth_normal(r, indices[idx_min], N);
-			// printf("new N ");
-			// PRINT_VEC(N);
-		t = t_min;
-		if(t_min != INF){
-			// printf("inter triangle %f\n", t_min);
-		}else{
-			printf("no hit\n");
-		}
+		if (idx_min > -1)
+			t = t_min;
 		return t_min != INF;
 	}
 
@@ -340,8 +297,6 @@ public:
 	}
 
 	__device__ void buildBVH(BVH* cur, int triangle_start, int triangle_end) {
-		// std::cout << cur << ' ' << triangle_start << ' ' << triangle_end << '\n';
-		// printf("%d %d\n", triangle_start, triangle_end);
 		cur->triangle_start = triangle_start;
 		cur->triangle_end = triangle_end;
 		cur->left = NULL;
@@ -376,40 +331,10 @@ public:
 		buildBVH(cur->right, pivot, triangle_end);
 	}
 
-	__device__ void bvhTreeToArray(BVH *cur, float* bvh_arr, size_t &arr_size, size_t arr_idx = 0) {
-		// std::cout << arr_idx << ' ' << cur->triangle_start << ' ' << cur->triangle_end << '\n';
-		// std::cout << "rfgsg\n";
-		// PRINT_VEC(cur->bb.mn);
-		// PRINT_VEC(cur->bb.mx);
-		
-		bvh_arr[arr_idx * 10 + 2] = cur->bb.mn[0];
-		bvh_arr[arr_idx * 10 + 3] = cur->bb.mn[1];
-		bvh_arr[arr_idx * 10 + 4] = cur->bb.mn[2];
-		bvh_arr[arr_idx * 10 + 5] = cur->bb.mx[0];
-		bvh_arr[arr_idx * 10 + 6] = cur->bb.mx[1];
-		bvh_arr[arr_idx * 10 + 7] = cur->bb.mx[2];
-		bvh_arr[arr_idx * 10 + 8] = cur->triangle_start;
-		bvh_arr[arr_idx * 10 + 9] = cur->triangle_end;
-
-		if (cur->left) {
-			bvh_arr[arr_idx * 10 + 0] = arr_size++;
-			bvhTreeToArray(cur->left, bvh_arr, arr_size, bvh_arr[arr_idx * 10 + 0]);
-		} else {
-			bvh_arr[arr_idx * 10 + 0] = -1;
-		}
-		if (cur->right) {
-			bvh_arr[arr_idx * 10 + 1] = arr_size++;
-			bvhTreeToArray(cur->right, bvh_arr, arr_size, bvh_arr[arr_idx * 10 + 1]);
-		} else {
-			bvh_arr[arr_idx * 10 + 1] = -1;
-		}
-	}
-
 	TriangleIndices* indices;
 	int indices_size;
 	Vector* vertices, *normals;
 	int vertices_size, normals_size;
-	// float* bvh;
 	BVH bvh;
 };
 
@@ -444,15 +369,14 @@ class TriangleMeshHost {
 public:
  	~TriangleMeshHost() {}
 	TriangleMeshHost() {};
-	void rescale(float scale, Vector offset){
-		for(int i = 0; i < vertices.size(); i++){
+	void rescale(float scale, Vector offset) {
+		for(int i = 0; i < vertices.size(); i++) {
 			vertices[i] = vertices[i] * scale + offset;
 		}
 	}
 
 	
-void readOBJ(const char *obj)
-{
+void readOBJ(const char *obj) {
 
     char matfile[255];
     char grp[255];
@@ -460,8 +384,7 @@ void readOBJ(const char *obj)
     FILE *f;
     f = fopen(obj, "r");
     int curGroup = -1;
-    while (!feof(f))
-    {
+    while (!feof(f)) {
         char line[255];
         if (!fgets(line, 255, f))
             break;
@@ -470,19 +393,16 @@ void readOBJ(const char *obj)
         linetrim.erase(linetrim.find_last_not_of(" \r\t") + 1);
         strcpy(line, linetrim.c_str());
 
-        if (line[0] == 'u' && line[1] == 's')
-        {
+        if (line[0] == 'u' && line[1] == 's') {
             sscanf(line, "usemtl %[^\n]\n", grp);
             curGroup++;
         }
 
-        if (line[0] == 'v' && line[1] == ' ')
-        {
+        if (line[0] == 'v' && line[1] == ' ') {
             Vector vec;
 
             Vector col;
-            if (sscanf(line, "v %f %f %f %f %f %f\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6)
-            {
+            if (sscanf(line, "v %f %f %f %f %f %f\n", &vec[0], &vec[1], &vec[2], &col[0], &col[1], &col[2]) == 6) {
                 col[0] = std::min(1.f, std::max(0.f, col[0]));
                 col[1] = std::min(1.f, std::max(0.f, col[1]));
                 col[2] = std::min(1.f, std::max(0.f, col[2]));
@@ -490,28 +410,23 @@ void readOBJ(const char *obj)
                 vertices.push_back(vec);
 				vec = vec*0.8+Vector(0, -10, 0);
                 vertexcolors.push_back(col);
-            }
-            else
-            {
+            } else {
                 sscanf(line, "v %f %f %f\n", &vec[0], &vec[1], &vec[2]);
 				vec = vec*0.8+Vector(0, -10, 0);
                 vertices.push_back(vec);
             }
         }
-        if (line[0] == 'v' && line[1] == 'n')
-        {
+        if (line[0] == 'v' && line[1] == 'n') {
             Vector vec;
             sscanf(line, "vn %f %f %f\n", &vec[0], &vec[1], &vec[2]);
             normals.push_back(vec);
         }
-        if (line[0] == 'v' && line[1] == 't')
-        {
+        if (line[0] == 'v' && line[1] == 't') {
             Vector vec;
             sscanf(line, "vt %f %f\n", &vec[0], &vec[1]);
             uvs.push_back(vec);
         }
-        if (line[0] == 'f')
-        {
+        if (line[0] == 'f') {
             TriangleIndices t;
             int i0, i1, i2, i3;
             int j0, j1, j2, j3;
@@ -523,8 +438,7 @@ void readOBJ(const char *obj)
             int offset;
 
             nn = sscanf(consumedline, "%u/%u/%u %u/%u/%u %u/%u/%u%n", &i0, &j0, &k0, &i1, &j1, &k1, &i2, &j2, &k2, &offset);
-            if (nn == 9)
-            {
+            if (nn == 9) {
                 if (i0 < 0)
                     t.vtxi = vertices.size() + i0;
                 else
@@ -562,12 +476,9 @@ void readOBJ(const char *obj)
                 else
                     t.nk = k2 - 1;
                 indices.push_back(t);
-            }
-            else
-            {
+            } else {
                 nn = sscanf(consumedline, "%u/%u %u/%u %u/%u%n", &i0, &j0, &i1, &j1, &i2, &j2, &offset);
-                if (nn == 6)
-                {
+                if (nn == 6) {
                     if (i0 < 0)
                         t.vtxi = vertices.size() + i0;
                     else
@@ -593,12 +504,9 @@ void readOBJ(const char *obj)
                     else
                         t.uvk = j2 - 1;
                     indices.push_back(t);
-                }
-                else
-                {
+                } else {
                     nn = sscanf(consumedline, "%u %u %u%n", &i0, &i1, &i2, &offset);
-                    if (nn == 3)
-                    {
+                    if (nn == 3) {
                         if (i0 < 0)
                             t.vtxi = vertices.size() + i0;
                         else
@@ -612,9 +520,7 @@ void readOBJ(const char *obj)
                         else
                             t.vtxk = i2 - 1;
                         indices.push_back(t);
-                    }
-                    else
-                    {
+                    } else {
                         nn = sscanf(consumedline, "%u//%u %u//%u %u//%u%n", &i0, &k0, &i1, &k1, &i2, &k2, &offset);
                         if (i0 < 0)
                             t.vtxi = vertices.size() + i0;
@@ -647,8 +553,7 @@ void readOBJ(const char *obj)
 
             consumedline = consumedline + offset;
 
-            while (true)
-            {
+            while (true) {
                 if (consumedline[0] == '\n')
                     break;
                 if (consumedline[0] == '\0')
@@ -656,8 +561,7 @@ void readOBJ(const char *obj)
                 nn = sscanf(consumedline, "%u/%u/%u%n", &i3, &j3, &k3, &offset);
                 TriangleIndices t2;
                 t2.group = curGroup;
-                if (nn == 3)
-                {
+                if (nn == 3) {
                     if (i0 < 0)
                         t2.vtxi = vertices.size() + i0;
                     else
@@ -699,12 +603,9 @@ void readOBJ(const char *obj)
                     i2 = i3;
                     j2 = j3;
                     k2 = k3;
-                }
-                else
-                {
+                } else {
                     nn = sscanf(consumedline, "%u/%u%n", &i3, &j3, &offset);
-                    if (nn == 2)
-                    {
+                    if (nn == 2) {
                         if (i0 < 0)
                             t2.vtxi = vertices.size() + i0;
                         else
@@ -733,12 +634,9 @@ void readOBJ(const char *obj)
                         i2 = i3;
                         j2 = j3;
                         indices.push_back(t2);
-                    }
-                    else
-                    {
+                    } else {
                         nn = sscanf(consumedline, "%u//%u%n", &i3, &k3, &offset);
-                        if (nn == 2)
-                        {
+                        if (nn == 2) {
                             if (i0 < 0)
                                 t2.vtxi = vertices.size() + i0;
                             else
@@ -767,12 +665,9 @@ void readOBJ(const char *obj)
                             i2 = i3;
                             k2 = k3;
                             indices.push_back(t2);
-                        }
-                        else
-                        {
+                        } else {
                             nn = sscanf(consumedline, "%u%n", &i3, &offset);
-                            if (nn == 1)
-                            {
+                            if (nn == 1) {
                                 if (i0 < 0)
                                     t2.vtxi = vertices.size() + i0;
                                 else
@@ -788,9 +683,7 @@ void readOBJ(const char *obj)
                                 consumedline = consumedline + offset;
                                 i2 = i3;
                                 indices.push_back(t2);
-                            }
-                            else
-                            {
+                            } else {
                                 consumedline = consumedline + 1;
                             }
                         }
@@ -913,7 +806,6 @@ public:
 					 float l = intensity / (4 * PI * (L - P).norm2()) * max(dot(N, wlight), 0.f);
 						direct_colors[ray_depth] = l * S->albedo / PI;
 					}
-					// printf("%f %f\n", (P_prime - P_adjusted).norm2(), (L - P_adjusted).norm2());
 					// Get indirect color by launching ray
 					unsigned int seed = threadIdx.x;
 					float r1 = curand_uniform(rand_state);
@@ -933,9 +825,6 @@ public:
 					ray = Ray(P_adjusted, random_direction);
 					indirect_albedos[ray_depth] = ((Geometry *)objects[sphere_id])->albedo;
 					types[ray_depth] = 1;
-
-					// printf("DIFF INTER\n");
-
 				}
 			}
 		}
@@ -980,12 +869,8 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 		cat->indices = indices;
 		cat->vertices_size = vertices_size;
 		cat->vertices = vertices;
-		// printf("%d %d\n", indices_size, vertices_size);
 		cat->normals_size = normals_size;
 		cat->normals = normals;
-		// for(int i = 0; i < 10; i++){
-		// 	PRINT_VEC(cat->normals[i]);
-		// }
 		// cat->uvs_size;
 		// cat->uvs;
 		// cat->vertexcolors_size;
@@ -997,7 +882,6 @@ __global__ void KernelInit(Scene *s, TriangleIndices *indices, int indices_size,
 }
 
 __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_rays, int num_bounce) {
-    // size_t index = blockIdx.x * blockDim.x + threadIdx.x;
 	unsigned int x = blockIdx.x*blockDim.x + threadIdx.x;
 	unsigned int y = blockIdx.y*blockDim.y + threadIdx.y;
 	int threadId = (blockIdx.x + blockIdx.y * gridDim.x) * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
@@ -1014,7 +898,6 @@ __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_ray
 	// curand_init(123456, index, 0, shared_scene->rand_states + threadIdx.x);
     // int i = (index / num_rays) / W, j = (index / num_rays) % W;
 	
-	// printf("%d %d\n", x, y);
 	Vector C(0, 0, 55);
 	float alpha = PI/3;
 	float z = -W / (2 * tan(alpha/2));
@@ -1023,7 +906,7 @@ __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_ray
 	// Box-muller for anti-aliasing
 
 	float sigma = 0.2;
-	for(int i = 0; i < num_rays; i++){
+	for(int i = 0; i < num_rays; i++) {
 		float r1 = curand_uniform(&rand_state);
 		float r2 = curand_uniform(&rand_state);
 		Vector u = u_center + Vector(sigma * sqrtf(-2 * log(r1)) * cosf(2 * PI * r2), sigma * sqrtf(-2 * log(r1)) * sinf(2 * PI * r2), 0);
@@ -1032,9 +915,7 @@ __global__ void KernelLaunch(Scene *s, Vector *colors, int W, int H, int num_ray
 		Vector color = s->getColorIterative(&rand_state, r, num_bounce);
 		outcolor = outcolor + color;
 	}
-	// PRINT_VEC(color);
 	outcolor = outcolor / num_rays;
-	// PRINT_VEC(outcolor);
 	colors[i] = outcolor;	
 }
 
